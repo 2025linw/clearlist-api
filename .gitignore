@@ -1,0 +1,7 @@
+# Compilation Targets
+/target
+
+# Private Keys
+**/*.der
+**/*.env
+
