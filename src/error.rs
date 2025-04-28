@@ -28,6 +28,7 @@ impl From<tokio_postgres::Error> for Error {
     }
 }
 
+#[allow(clippy::from_over_into)] // This is to prevent errors when using `?` operator on error maps
 impl Into<(StatusCode, Json<serde_json::Value>)> for Error {
     fn into(self) -> (StatusCode, Json<serde_json::Value>) {
         match self {
