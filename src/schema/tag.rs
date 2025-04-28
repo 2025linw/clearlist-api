@@ -84,7 +84,7 @@ impl<'a, 'b> AddToQuery<'a, 'b> for QueryTagSchema {
                         cmp = PostgresCmp::IsNull;
                     }
                 }
-                QueryMethod::Match(_) => cmp = PostgresCmp::Like,
+                QueryMethod::Match(_) => cmp = PostgresCmp::ILike,
                 QueryMethod::Compare(_, c) => cmp = c.to_postgres_cmp(),
             }
             builder.add_condition(TagModel::LABEL, cmp, q);
@@ -100,7 +100,7 @@ impl<'a, 'b> AddToQuery<'a, 'b> for QueryTagSchema {
                         cmp = PostgresCmp::IsNull;
                     }
                 }
-                QueryMethod::Match(_) => cmp = PostgresCmp::Like,
+                QueryMethod::Match(_) => cmp = PostgresCmp::ILike,
                 QueryMethod::Compare(_, c) => cmp = c.to_postgres_cmp(),
             }
             builder.add_condition(TagModel::CATEGORY, cmp, q);
@@ -207,7 +207,7 @@ mod query_schema_test {
 
         assert_eq!(
             statement.as_str(),
-            "SELECT * FROM data.tags WHERE tag_label LIKE '%' || $1 || '%' AND category LIKE '%' || $2 || '%'"
+            "SELECT * FROM data.tags WHERE tag_label ILIKE '%' || $1 || '%' AND category ILIKE '%' || $2 || '%'"
         );
         assert_eq!(params.len(), 2);
     }

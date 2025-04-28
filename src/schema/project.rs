@@ -162,7 +162,7 @@ impl<'a, 'b> AddToQuery<'a, 'b> for QueryProjectSchema {
                         cmp = PostgresCmp::IsNull;
                     }
                 }
-                QueryMethod::Match(_) => cmp = PostgresCmp::Like,
+                QueryMethod::Match(_) => cmp = PostgresCmp::ILike,
                 QueryMethod::Compare(_, c) => cmp = c.to_postgres_cmp(),
             }
             builder.add_condition(ProjectModel::TITLE, cmp, q);
@@ -177,7 +177,7 @@ impl<'a, 'b> AddToQuery<'a, 'b> for QueryProjectSchema {
                         cmp = PostgresCmp::IsNull;
                     }
                 }
-                QueryMethod::Match(_) => cmp = PostgresCmp::Like,
+                QueryMethod::Match(_) => cmp = PostgresCmp::ILike,
                 QueryMethod::Compare(_, c) => cmp = c.to_postgres_cmp(),
             }
             builder.add_condition(ProjectModel::NOTES, cmp, q);
@@ -509,7 +509,7 @@ mod query_schema_test {
 
         assert_eq!(
             statement.as_str(),
-            "SELECT * FROM data.projects WHERE project_title LIKE '%' || $1 || '%' AND notes LIKE '%' || $2 || '%'"
+            "SELECT * FROM data.projects WHERE project_title ILIKE '%' || $1 || '%' AND notes ILIKE '%' || $2 || '%'"
         );
         assert_eq!(params.len(), 2);
     }
@@ -633,7 +633,7 @@ mod query_schema_test {
 
         assert_eq!(
             statement.as_str(),
-            "SELECT * FROM data.projects WHERE project_title LIKE '%' || $1 || '%' AND notes LIKE '%' || $2 || '%' AND start_date = $3 AND start_time = $4 AND deadline > $5 AND completed_on IS NULL AND logged_on NOT NULL AND trashed_on IS NULL AND area_id = $6"
+            "SELECT * FROM data.projects WHERE project_title ILIKE '%' || $1 || '%' AND notes ILIKE '%' || $2 || '%' AND start_date = $3 AND start_time = $4 AND deadline > $5 AND completed_on IS NULL AND logged_on NOT NULL AND trashed_on IS NULL AND area_id = $6"
         );
         assert_eq!(params.len(), 6);
     }

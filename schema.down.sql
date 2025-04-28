@@ -8,8 +8,3 @@ Drop auth and data schemas, and all tables associated with them
 TODO: Should add more granular control over the removal
 */
 DROP SCHEMA IF EXISTS auth, data CASCADE;
-
-/*
-Drop PostgreSQL extension for case-insensitive text
-*/
-DROP EXTENSION IF EXISTS citext;

@@ -2,15 +2,6 @@
 This SQL script is an up migration script for Todo List Database
 */
 
-/*
-Adds case insesitive text to database
-
-By default, most TEXT in tables are all citext.
-However, this may change to allow for granular control over
-searching
-*/
-CREATE EXTENSION citext;
-
 
 /*
 Adds authentication schema and adjust permissions::
@@ -44,6 +35,8 @@ CREATE TABLE IF NOT EXISTS auth.users
 	password_hash text NOT NULL,
 
     -- TODO: add user first and last name
+    first_name text,
+    last_name text,
 
 	created_on timestamptz(0) DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_on timestamptz(0) DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -61,7 +54,7 @@ CREATE TABLE IF NOT EXISTS data.areas
 (
 	area_id	uuid DEFAULT gen_random_uuid(),
 
-	area_name citext,
+	area_name text,
 	icon_url text,
 
 	user_id uuid NOT NULL,
@@ -81,7 +74,7 @@ CREATE TABLE IF NOT EXISTS data.projects
 (
 	project_id uuid DEFAULT gen_random_uuid(),
 
-    project_title citext,
+    project_title text,
     notes text,
     start_date date,
 	start_time time(0),
@@ -110,7 +103,7 @@ CREATE TABLE IF NOT EXISTS data.tasks
 (
 	task_id uuid DEFAULT gen_random_uuid(),
 
-    task_title citext,
+    task_title text,
     notes text,
     start_date date,
 	start_time time(0),
@@ -139,7 +132,7 @@ CREATE TABLE IF NOT EXISTS data.tags
 (
 	tag_id uuid DEFAULT gen_random_uuid(),
 
-	tag_label citext NOT NULL,
+	tag_label text NOT NULL,
 	color varchar(7) CHECK (color IS NULL OR color ~* '^#[a-f0-9]{6}$'),
 
 	category varchar(255),

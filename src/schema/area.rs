@@ -68,7 +68,7 @@ impl<'a, 'b> AddToQuery<'a, 'b> for QueryAreaSchema {
                         cmp = PostgresCmp::IsNull;
                     }
                 }
-                QueryMethod::Match(_) => cmp = PostgresCmp::Like,
+                QueryMethod::Match(_) => cmp = PostgresCmp::ILike,
                 QueryMethod::Compare(_, c) => cmp = c.to_postgres_cmp(),
             }
             builder.add_condition(AreaModel::NAME, cmp, q);
@@ -172,7 +172,7 @@ mod query_schema_test {
 
         assert_eq!(
             statement.as_str(),
-            "SELECT * FROM data.areas WHERE area_name LIKE '%' || $1 || '%'"
+            "SELECT * FROM data.areas WHERE area_name ILIKE '%' || $1 || '%'"
         );
         assert_eq!(params.len(), 1);
     }
