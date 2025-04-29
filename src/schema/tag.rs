@@ -1,8 +1,9 @@
+use chrono::{DateTime, Local};
 use serde::Deserialize;
 
 use crate::{
     model::tag::TagModel,
-    util::{AddToQuery, PostgresCmp, SQLQueryBuilder, ToPostgresCmp},
+    util::{PostgresCmp, SQLQueryBuilder, ToPostgresCmp, ToSQLQueryBuilder},
 };
 
 use super::{QueryMethod, UpdateMethod};
@@ -17,8 +18,11 @@ pub struct CreateTagSchema {
     category: Option<String>,
 }
 
-impl<'a, 'b> AddToQuery<'a, 'b> for CreateTagSchema {
-    fn add_to_query(&'a self, builder: &'b mut SQLQueryBuilder<'a>) {
+impl ToSQLQueryBuilder for CreateTagSchema {
+    fn to_sql_builder(&self) -> SQLQueryBuilder {
+        let mut builder = SQLQueryBuilder::new(TagModel::TABLE);
+        builder.set_return_all();
+
         if let Some(ref s) = self.label {
             builder.add_column(TagModel::LABEL, s);
         }
@@ -29,6 +33,8 @@ impl<'a, 'b> AddToQuery<'a, 'b> for CreateTagSchema {
         if let Some(ref s) = self.category {
             builder.add_column(TagModel::CATEGORY, s);
         }
+
+        builder
     }
 }
 
@@ -40,10 +46,25 @@ pub struct UpdateTagSchema {
     color: Option<UpdateMethod<String>>,
 
     category: Option<UpdateMethod<String>>,
+
+    #[serde(default)]
+    timestamp: DateTime<Local>,
 }
 
-impl<'a, 'b> AddToQuery<'a, 'b> for UpdateTagSchema {
-    fn add_to_query(&'a self, builder: &'b mut SQLQueryBuilder<'a>) {
+impl UpdateTagSchema {
+    pub fn is_empty(&self) -> bool {
+        self.label.is_none()
+            && self.color.is_none()
+            && self.category.is_none()
+    }
+}
+
+impl ToSQLQueryBuilder for UpdateTagSchema {
+    fn to_sql_builder(&self) -> SQLQueryBuilder {
+        let mut builder = SQLQueryBuilder::new(TagModel::TABLE);
+        builder.add_column(TagModel::UPDATED, &self.timestamp);
+        builder.set_return_all();
+
         if let Some(ref u) = self.label {
             if matches!(u, UpdateMethod::Remove(true) | UpdateMethod::Change(..)) {
                 builder.add_column(TagModel::LABEL, u);
@@ -60,6 +81,8 @@ impl<'a, 'b> AddToQuery<'a, 'b> for UpdateTagSchema {
                 builder.add_column(TagModel::CATEGORY, u);
             }
         }
+
+        builder
     }
 }
 
@@ -72,8 +95,10 @@ pub struct QueryTagSchema {
     category: Option<QueryMethod<String>>,
 }
 
-impl<'a, 'b> AddToQuery<'a, 'b> for QueryTagSchema {
-    fn add_to_query(&'a self, builder: &'b mut SQLQueryBuilder<'a>) {
+impl ToSQLQueryBuilder for QueryTagSchema {
+    fn to_sql_builder(&self) -> SQLQueryBuilder {
+        let mut builder = SQLQueryBuilder::new(TagModel::TABLE);
+
         if let Some(ref q) = self.label {
             let cmp;
             match q {
@@ -105,15 +130,14 @@ impl<'a, 'b> AddToQuery<'a, 'b> for QueryTagSchema {
             }
             builder.add_condition(TagModel::CATEGORY, cmp, q);
         }
+
+        builder
     }
 }
 
 #[cfg(test)]
 mod create_schema_test {
-    use crate::{
-        model::tag::TagModel,
-        util::{AddToQuery, SQLQueryBuilder},
-    };
+    use crate::util::ToSQLQueryBuilder;
 
     use super::CreateTagSchema;
 
@@ -124,14 +148,11 @@ mod create_schema_test {
         schema.color = Some("#2f78ed".to_string());
         schema.category = Some("Priority".to_string());
 
-        let mut builder = SQLQueryBuilder::new(TagModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_insert();
+        let (statement, params) = schema.to_sql_builder().build_insert();
 
         assert_eq!(
             statement.as_str(),
-            "INSERT INTO data.tags (tag_label, color, category) VALUES ($1, $2, $3)"
+            "INSERT INTO data.tags (tag_label, color, category) VALUES ($1, $2, $3) RETURNING *"
         );
         assert_eq!(params.len(), 3);
     }
@@ -141,11 +162,7 @@ mod create_schema_test {
 
 #[cfg(test)]
 mod update_schema_test {
-    use crate::{
-        model::tag::TagModel,
-        schema::UpdateMethod,
-        util::{AddToQuery, SQLQueryBuilder},
-    };
+    use crate::{schema::UpdateMethod, util::ToSQLQueryBuilder};
 
     use super::UpdateTagSchema;
 
@@ -156,16 +173,13 @@ mod update_schema_test {
         schema.color = Some(UpdateMethod::Change("#2f78ed".to_string()));
         schema.category = Some(UpdateMethod::Change("Priority".to_string()));
 
-        let mut builder = SQLQueryBuilder::new(TagModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_update();
+        let (statement, params) = schema.to_sql_builder().build_update();
 
         assert_eq!(
             statement.as_str(),
-            "UPDATE data.tags SET tag_label=$1, color=$2, category=$3"
+            "UPDATE data.tags SET updated_on=$1, tag_label=$2, color=$3, category=$4 RETURNING *"
         );
-        assert_eq!(params.len(), 3);
+        assert_eq!(params.len(), 4);
     }
 
     // TEST: make production example
@@ -173,11 +187,7 @@ mod update_schema_test {
 
 #[cfg(test)]
 mod query_schema_test {
-    use crate::{
-        model::tag::TagModel,
-        schema::QueryMethod,
-        util::{AddToQuery, SQLQueryBuilder},
-    };
+    use crate::{schema::QueryMethod, util::ToSQLQueryBuilder};
 
     use super::QueryTagSchema;
 
@@ -185,10 +195,7 @@ mod query_schema_test {
     fn empty() {
         let schema = QueryTagSchema::default();
 
-        let mut builder = SQLQueryBuilder::new(TagModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_select();
+        let (statement, params) = schema.to_sql_builder().build_select();
 
         assert_eq!(statement.as_str(), "SELECT * FROM data.tags");
         assert_eq!(params.len(), 0);
@@ -200,10 +207,7 @@ mod query_schema_test {
         schema.label = Some(QueryMethod::Match("Test Label".to_string()));
         schema.category = Some(QueryMethod::Match("Priority".to_string()));
 
-        let mut builder = SQLQueryBuilder::new(TagModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_select();
+        let (statement, params) = schema.to_sql_builder().build_select();
 
         assert_eq!(
             statement.as_str(),

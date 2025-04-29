@@ -6,7 +6,6 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use axum_jwt_auth::Claims;
-use chrono::Local;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -23,7 +22,7 @@ use crate::{
         auth::Claim,
         task::{CreateTaskSchema, QueryTaskSchema, UpdateTaskSchema},
     },
-    util::{AddToQuery, Join, PostgresCmp, SQLQueryBuilder},
+    util::{Join, PostgresCmp, SQLQueryBuilder, ToSQLQueryBuilder},
 };
 
 pub async fn create_task_handler(
@@ -43,10 +42,8 @@ pub async fn create_task_handler(
         .map_err(|e| Error::from(e).into())?;
 
     // Create task
-    let mut query_builder = SQLQueryBuilder::new(TaskModel::TABLE);
+    let mut query_builder = body.to_sql_builder();
     query_builder.add_column(TaskModel::USER_ID, &user_id);
-    body.add_to_query(&mut query_builder);
-    query_builder.set_return(vec![TaskModel::ID]);
 
     let (statement, params) = query_builder.build_insert();
 
@@ -137,6 +134,7 @@ pub async fn retrieve_task_handler(
     let conn = data.get_conn().await.map_err(|e| e.into())?;
 
     // Retrieve task
+    // TODO: maybe make this a function as this is used a few times (in create task and update)
     let mut query_builder = SQLQueryBuilder::new(TaskModel::TABLE);
     query_builder.add_condition(TaskModel::USER_ID, PostgresCmp::Equal, &user_id);
     query_builder.add_condition(TaskModel::ID, PostgresCmp::Equal, &id);
@@ -194,6 +192,11 @@ pub async fn update_task_handler(
     // Get user id
     let user_id = claim.sub;
 
+    // If no updates made
+    if body.is_empty() {
+        return Err(Error::InvalidRequest("no task details were updated".to_string()).into());
+    }
+
     // Get database connection and start transaction
     let mut conn = data.get_conn().await.map_err(|e| e.into())?;
     let transaction = conn
@@ -202,13 +205,9 @@ pub async fn update_task_handler(
         .map_err(|e| Error::from(e).into())?;
 
     // Update task
-    let timestamp = Local::now();
-    let mut query_builder = SQLQueryBuilder::new(TaskModel::TABLE);
-    query_builder.add_column(TaskModel::UPDATED, &timestamp);
-    body.add_to_query(&mut query_builder);
+    let mut query_builder = body.to_sql_builder();
     query_builder.add_condition(TaskModel::USER_ID, PostgresCmp::Equal, &user_id);
     query_builder.add_condition(TaskModel::ID, PostgresCmp::Equal, &id);
-    query_builder.set_return(vec![TaskModel::ID]);
 
     let (statement, params) = query_builder.build_update();
 
@@ -366,8 +365,7 @@ pub async fn query_task_handler(
     let offset = (page - 1) * limit;
 
     // Query tasks
-    let mut query_builder = SQLQueryBuilder::new(TaskModel::TABLE);
-    body.add_to_query(&mut query_builder);
+    let mut query_builder = body.to_sql_builder();
     query_builder.add_condition(TaskModel::USER_ID, PostgresCmp::Equal, &user_id);
     query_builder.set_limit(limit);
     query_builder.set_offset(offset);

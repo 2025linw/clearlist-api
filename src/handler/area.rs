@@ -6,7 +6,6 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use axum_jwt_auth::Claims;
-use chrono::Local;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -22,7 +21,7 @@ use crate::{
         area::{CreateAreaSchema, QueryAreaSchema, UpdateAreaSchema},
         auth::Claim,
     },
-    util::{AddToQuery, PostgresCmp, SQLQueryBuilder},
+    util::{PostgresCmp, SQLQueryBuilder, ToSQLQueryBuilder},
 };
 
 pub async fn create_area_handler(
@@ -42,10 +41,8 @@ pub async fn create_area_handler(
         .map_err(|e| Error::from(e).into())?;
 
     // Create area
-    let mut query_builder = SQLQueryBuilder::new(AreaModel::TABLE);
+    let mut query_builder = body.to_sql_builder();
     query_builder.add_column(AreaModel::USER_ID, &user_id);
-    body.add_to_query(&mut query_builder);
-    query_builder.set_return_all();
 
     let (statement, params) = query_builder.build_insert();
 
@@ -128,6 +125,11 @@ pub async fn update_area_handler(
     // Get user id
     let user_id = claim.sub;
 
+    // If no updates made
+    if body.is_empty() {
+        return Err(Error::InvalidRequest("no area details were updated".to_string()).into());
+    }
+
     // Get database connection and start transaction
     let mut conn = data.get_conn().await.map_err(|e| e.into())?;
     let transaction = conn
@@ -136,13 +138,9 @@ pub async fn update_area_handler(
         .map_err(|e| Error::from(e).into())?;
 
     // Update area
-    let timestamp = Local::now();
-    let mut query_builder = SQLQueryBuilder::new(AreaModel::TABLE);
-    query_builder.add_column(AreaModel::UPDATED, &timestamp);
-    body.add_to_query(&mut query_builder);
+    let mut query_builder = body.to_sql_builder();
     query_builder.add_condition(AreaModel::USER_ID, PostgresCmp::Equal, &user_id);
     query_builder.add_condition(AreaModel::ID, PostgresCmp::Equal, &id);
-    query_builder.set_return_all();
 
     let (statement, params) = query_builder.build_update();
 
@@ -243,8 +241,7 @@ pub async fn query_area_handler(
     let offset = (page - 1) * limit;
 
     // Query areas
-    let mut query_builder = SQLQueryBuilder::new(AreaModel::TABLE);
-    body.add_to_query(&mut query_builder);
+    let mut query_builder = body.to_sql_builder();
     query_builder.add_condition(AreaModel::USER_ID, PostgresCmp::Equal, &user_id);
     query_builder.set_limit(limit);
     query_builder.set_offset(offset);

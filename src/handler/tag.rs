@@ -6,7 +6,6 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use axum_jwt_auth::Claims;
-use chrono::Local;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -22,7 +21,7 @@ use crate::{
         auth::Claim,
         tag::{CreateTagSchema, QueryTagSchema, UpdateTagSchema},
     },
-    util::{AddToQuery, PostgresCmp, SQLQueryBuilder},
+    util::{PostgresCmp, SQLQueryBuilder, ToSQLQueryBuilder},
 };
 
 pub async fn create_tag_handler(
@@ -42,10 +41,8 @@ pub async fn create_tag_handler(
         .map_err(|e| Error::from(e).into())?;
 
     // Create tag
-    let mut query_builder = SQLQueryBuilder::new(TagModel::TABLE);
+    let mut query_builder = body.to_sql_builder();
     query_builder.add_column(TagModel::USER_ID, &user_id);
-    body.add_to_query(&mut query_builder);
-    query_builder.set_return_all();
 
     let (statement, params) = query_builder.build_insert();
 
@@ -129,6 +126,11 @@ pub async fn update_tag_handler(
     // Get user id
     let user_id = claim.sub;
 
+    // If no updates made
+    if body.is_empty() {
+        return Err(Error::InvalidRequest("no area details were updated".to_string()).into());
+    }
+
     // Get database connection and start transaction
     let mut conn = data.get_conn().await.map_err(|e| e.into())?;
     let transaction = conn
@@ -137,13 +139,9 @@ pub async fn update_tag_handler(
         .map_err(|e| Error::from(e).into())?;
 
     // Update tag
-    let timestamp = Local::now();
-    let mut query_builder = SQLQueryBuilder::new(TagModel::TABLE);
-    query_builder.add_column(TagModel::UPDATED, &timestamp);
-    body.add_to_query(&mut query_builder);
+    let mut query_builder = body.to_sql_builder();
     query_builder.add_condition(TagModel::USER_ID, PostgresCmp::Equal, &user_id);
     query_builder.add_condition(TagModel::ID, PostgresCmp::Equal, &id);
-    query_builder.set_return_all();
 
     let (statement, params) = query_builder.build_update();
 
@@ -244,8 +242,7 @@ pub async fn query_tag_handler(
     let offset = (page - 1) * limit;
 
     // Query tags
-    let mut query_builder = SQLQueryBuilder::new(TagModel::TABLE);
-    body.add_to_query(&mut query_builder);
+    let mut query_builder = body.to_sql_builder();
     query_builder.add_condition(TagModel::USER_ID, PostgresCmp::Equal, &user_id);
     query_builder.set_limit(limit);
     query_builder.set_offset(offset);

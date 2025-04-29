@@ -148,8 +148,7 @@ impl<'a> SQLQueryBuilder<'a> {
     }
 
     pub fn set_group_by(&mut self, columns: Vec<&str>) -> &mut Self {
-        self.group_by.clear();
-        self.group_by.extend(columns.iter().map(|s| s.to_string()));
+        self.group_by = columns.iter().map(|s| s.to_string()).collect();
 
         self
     }
@@ -181,9 +180,7 @@ impl<'a> SQLQueryBuilder<'a> {
 
     /// Set query to return columns given
     pub fn set_return(&mut self, columns: Vec<&str>) -> &mut Self {
-        self.return_columns.clear();
-        self.return_columns
-            .extend(columns.iter().map(|s| s.to_string()));
+        self.return_columns = columns.iter().map(|s| s.to_string()).collect();
 
         self
     }
@@ -511,9 +508,8 @@ impl<'a> SQLQueryBuilder<'a> {
     }
 }
 
-// TODO: convert AddToQuery to build query function?
-pub trait AddToQuery<'a, 'b> {
-    fn add_to_query(&'a self, builder: &'b mut SQLQueryBuilder<'a>);
+pub trait ToSQLQueryBuilder {
+    fn to_sql_builder(&self) -> SQLQueryBuilder;
 }
 
 #[cfg(test)]

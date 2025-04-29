@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     model::project::ProjectModel,
-    util::{AddToQuery, NULL, PostgresCmp, SQLQueryBuilder, ToPostgresCmp},
+    util::{NULL, PostgresCmp, SQLQueryBuilder, ToPostgresCmp, ToSQLQueryBuilder},
 };
 
 use super::{QueryMethod, UpdateMethod};
@@ -23,8 +23,11 @@ pub struct CreateProjectSchema {
     pub(crate) tag_ids: Option<Vec<Uuid>>, // TODO: is there a way that this can not be pub?
 }
 
-impl<'a, 'b> AddToQuery<'a, 'b> for CreateProjectSchema {
-    fn add_to_query(&'a self, builder: &'b mut SQLQueryBuilder<'a>) {
+impl ToSQLQueryBuilder for CreateProjectSchema {
+    fn to_sql_builder(&self) -> SQLQueryBuilder {
+        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
+        builder.set_return(vec![ProjectModel::ID]);
+
         if let Some(ref s) = self.title {
             builder.add_column(ProjectModel::TITLE, s);
         }
@@ -44,6 +47,8 @@ impl<'a, 'b> AddToQuery<'a, 'b> for CreateProjectSchema {
         if let Some(ref i) = self.area_id {
             builder.add_column(ProjectModel::AREA_ID, i);
         }
+
+        builder
     }
 }
 
@@ -63,10 +68,32 @@ pub struct UpdateProjectSchema {
 
     area_id: Option<UpdateMethod<Uuid>>,
     pub(crate) tag_ids: Option<Vec<Uuid>>, // TODO: is there a way that this can not be pub?
+
+    #[serde(default)]
+    timestamp: DateTime<Local>,
 }
 
-impl<'a, 'b> AddToQuery<'a, 'b> for UpdateProjectSchema {
-    fn add_to_query(&'a self, builder: &'b mut SQLQueryBuilder<'a>) {
+impl UpdateProjectSchema {
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none()
+            && self.notes.is_none()
+            && self.start_date.is_none()
+            && self.start_time.is_none()
+            && self.deadline.is_none()
+            && self.completed.is_none()
+            && self.logged.is_none()
+            && self.trashed.is_none()
+            && self.area_id.is_none()
+            && self.tag_ids.is_none()
+    }
+}
+
+impl ToSQLQueryBuilder for UpdateProjectSchema {
+    fn to_sql_builder(&self) -> SQLQueryBuilder {
+        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
+        builder.add_column(ProjectModel::UPDATED, &self.timestamp);
+        builder.set_return(vec![ProjectModel::ID]);
+
         if let Some(ref u) = self.title {
             if matches!(u, UpdateMethod::Remove(true) | UpdateMethod::Change(..)) {
                 builder.add_column(ProjectModel::TITLE, u);
@@ -129,6 +156,8 @@ impl<'a, 'b> AddToQuery<'a, 'b> for UpdateProjectSchema {
                 builder.add_column(ProjectModel::AREA_ID, u);
             }
         }
+
+        builder
     }
 }
 
@@ -150,8 +179,10 @@ pub struct QueryProjectSchema {
     pub(crate) tag_ids: Option<Vec<Uuid>>, // TODO: is there a way that this can not be pub?
 }
 
-impl<'a, 'b> AddToQuery<'a, 'b> for QueryProjectSchema {
-    fn add_to_query(&'a self, builder: &'b mut SQLQueryBuilder<'a>) {
+impl ToSQLQueryBuilder for QueryProjectSchema {
+    fn to_sql_builder(&self) -> SQLQueryBuilder {
+        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
+
         if let Some(ref q) = self.title {
             let cmp;
             match q {
@@ -253,6 +284,8 @@ impl<'a, 'b> AddToQuery<'a, 'b> for QueryProjectSchema {
         if let Some(ref i) = self.area_id {
             builder.add_condition(ProjectModel::AREA_ID, PostgresCmp::Equal, i);
         }
+
+        builder
     }
 }
 
@@ -261,10 +294,7 @@ mod create_schema_test {
     use chrono::Local;
     use uuid::Uuid;
 
-    use crate::{
-        model::project::ProjectModel,
-        util::{AddToQuery, SQLQueryBuilder},
-    };
+    use crate::util::ToSQLQueryBuilder;
 
     use super::CreateProjectSchema;
 
@@ -274,14 +304,11 @@ mod create_schema_test {
         schema.title = Some("Test Title".to_string());
         schema.notes = Some("Test Note".to_string());
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_insert();
+        let (statement, params) = schema.to_sql_builder().build_insert();
 
         assert_eq!(
             statement.as_str(),
-            "INSERT INTO data.projects (project_title, notes) VALUES ($1, $2)"
+            "INSERT INTO data.projects (project_title, notes) VALUES ($1, $2) RETURNING project_id"
         );
         assert_eq!(params.len(), 2);
     }
@@ -295,14 +322,11 @@ mod create_schema_test {
         schema.start_time = Some(now.time());
         schema.deadline = Some(now.date_naive());
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_insert();
+        let (statement, params) = schema.to_sql_builder().build_insert();
 
         assert_eq!(
             statement.as_str(),
-            "INSERT INTO data.projects (start_date, start_time, deadline) VALUES ($1, $2, $3)"
+            "INSERT INTO data.projects (start_date, start_time, deadline) VALUES ($1, $2, $3) RETURNING project_id"
         );
         assert_eq!(params.len(), 3);
     }
@@ -312,14 +336,11 @@ mod create_schema_test {
         let mut schema = CreateProjectSchema::default();
         schema.area_id = Some(Uuid::new_v4());
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_insert();
+        let (statement, params) = schema.to_sql_builder().build_insert();
 
         assert_eq!(
             statement.as_str(),
-            "INSERT INTO data.projects (area_id) VALUES ($1)"
+            "INSERT INTO data.projects (area_id) VALUES ($1) RETURNING project_id"
         );
         assert_eq!(params.len(), 1);
     }
@@ -336,14 +357,11 @@ mod create_schema_test {
         schema.deadline = Some(now.date_naive());
         schema.area_id = Some(Uuid::new_v4());
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_insert();
+        let (statement, params) = schema.to_sql_builder().build_insert();
 
         assert_eq!(
             statement,
-            "INSERT INTO data.projects (project_title, notes, start_date, start_time, deadline, area_id) VALUES ($1, $2, $3, $4, $5, $6)"
+            "INSERT INTO data.projects (project_title, notes, start_date, start_time, deadline, area_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING project_id"
         );
         assert_eq!(params.len(), 6);
     }
@@ -356,11 +374,7 @@ mod update_schema_test {
     use chrono::Local;
     use uuid::Uuid;
 
-    use crate::{
-        model::project::ProjectModel,
-        schema::UpdateMethod,
-        util::{AddToQuery, SQLQueryBuilder},
-    };
+    use crate::{schema::UpdateMethod, util::ToSQLQueryBuilder};
 
     use super::UpdateProjectSchema;
 
@@ -370,16 +384,13 @@ mod update_schema_test {
         schema.title = Some(UpdateMethod::Change("Test Title".to_string()));
         schema.notes = Some(UpdateMethod::Change("Test Note".to_string()));
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_update();
+        let (statement, params) = schema.to_sql_builder().build_update();
 
         assert_eq!(
             statement.as_str(),
-            "UPDATE data.projects SET project_title=$1, notes=$2"
+            "UPDATE data.projects SET updated_on=$1, project_title=$2, notes=$3 RETURNING project_id"
         );
-        assert_eq!(params.len(), 2);
+        assert_eq!(params.len(), 3);
     }
 
     #[test]
@@ -391,36 +402,27 @@ mod update_schema_test {
         schema.start_time = Some(UpdateMethod::Change(now.time()));
         schema.deadline = Some(UpdateMethod::Change(now.date_naive()));
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_update();
+        let (statement, params) = schema.to_sql_builder().build_update();
 
         assert_eq!(
             statement.as_str(),
-            "UPDATE data.projects SET start_date=$1, start_time=$2, deadline=$3"
+            "UPDATE data.projects SET updated_on=$1, start_date=$2, start_time=$3, deadline=$4 RETURNING project_id"
         );
-        assert_eq!(params.len(), 3);
+        assert_eq!(params.len(), 4);
     }
 
     #[test]
     fn bool_only() {
-        let now = Local::now();
-
         let mut schema = UpdateProjectSchema::default();
         schema.completed = Some(true);
         schema.logged = Some(true);
         schema.trashed = Some(true);
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        builder.add_column(ProjectModel::UPDATED, &now);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_update();
+        let (statement, params) = schema.to_sql_builder().build_update();
 
         assert_eq!(
             statement.as_str(),
-            "UPDATE data.projects SET updated_on=$1, completed_on=$2, logged_on=$3, trashed_on=$4"
+            "UPDATE data.projects SET updated_on=$1, completed_on=$2, logged_on=$3, trashed_on=$4 RETURNING project_id"
         );
         assert_eq!(params.len(), 4);
     }
@@ -430,13 +432,13 @@ mod update_schema_test {
         let mut schema = UpdateProjectSchema::default();
         schema.area_id = Some(UpdateMethod::Change(Uuid::new_v4()));
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
+        let (statement, params) = schema.to_sql_builder().build_update();
 
-        let (statement, params) = builder.build_update();
-
-        assert_eq!(statement.as_str(), "UPDATE data.projects SET area_id=$1");
-        assert_eq!(params.len(), 1);
+        assert_eq!(
+            statement.as_str(),
+            "UPDATE data.projects SET updated_on=$1, area_id=$2 RETURNING project_id"
+        );
+        assert_eq!(params.len(), 2);
     }
 
     #[test]
@@ -454,15 +456,11 @@ mod update_schema_test {
         schema.trashed = Some(true);
         schema.area_id = Some(UpdateMethod::Change(Uuid::new_v4()));
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        builder.add_column(ProjectModel::UPDATED, &now);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_update();
+        let (statement, params) = schema.to_sql_builder().build_update();
 
         assert_eq!(
             statement.as_str(),
-            "UPDATE data.projects SET updated_on=$1, project_title=$2, notes=$3, start_date=$4, start_time=$5, deadline=$6, completed_on=$7, logged_on=$8, trashed_on=$9, area_id=$10"
+            "UPDATE data.projects SET updated_on=$1, project_title=$2, notes=$3, start_date=$4, start_time=$5, deadline=$6, completed_on=$7, logged_on=$8, trashed_on=$9, area_id=$10 RETURNING project_id"
         );
         assert_eq!(params.len(), 10);
     }
@@ -476,9 +474,8 @@ mod query_schema_test {
     use uuid::Uuid;
 
     use crate::{
-        model::project::ProjectModel,
         schema::{Compare, QueryMethod},
-        util::{AddToQuery, SQLQueryBuilder},
+        util::ToSQLQueryBuilder,
     };
 
     use super::QueryProjectSchema;
@@ -487,10 +484,7 @@ mod query_schema_test {
     fn empty() {
         let schema = QueryProjectSchema::default();
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_select();
+        let (statement, params) = schema.to_sql_builder().build_select();
 
         assert_eq!(statement.as_str(), "SELECT * FROM data.projects");
         assert_eq!(params.len(), 0);
@@ -502,10 +496,7 @@ mod query_schema_test {
         schema.title = Some(QueryMethod::Match("Test Title".to_string()));
         schema.notes = Some(QueryMethod::Match("Test Note".to_string()));
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_select();
+        let (statement, params) = schema.to_sql_builder().build_select();
 
         assert_eq!(
             statement.as_str(),
@@ -523,10 +514,7 @@ mod query_schema_test {
         schema.start_time = Some(QueryMethod::Match(now.time()));
         schema.deadline = Some(QueryMethod::Match(now.date_naive()));
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_select();
+        let (statement, params) = schema.to_sql_builder().build_select();
 
         assert_eq!(
             statement.as_str(),
@@ -544,10 +532,7 @@ mod query_schema_test {
         schema.start_time = Some(QueryMethod::Compare(now.time(), Compare::LessEq));
         schema.deadline = Some(QueryMethod::Compare(now.date_naive(), Compare::Greater));
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_select();
+        let (statement, params) = schema.to_sql_builder().build_select();
 
         assert_eq!(
             statement.as_str(),
@@ -563,10 +548,7 @@ mod query_schema_test {
         schema.logged = Some(true);
         schema.trashed = Some(true);
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_select();
+        let (statement, params) = schema.to_sql_builder().build_select();
 
         assert_eq!(
             statement.as_str(),
@@ -582,10 +564,7 @@ mod query_schema_test {
         schema.logged = Some(false);
         schema.trashed = Some(false);
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_select();
+        let (statement, params) = schema.to_sql_builder().build_select();
 
         assert_eq!(
             statement.as_str(),
@@ -599,10 +578,7 @@ mod query_schema_test {
         let mut schema = QueryProjectSchema::default();
         schema.area_id = Some(Uuid::new_v4());
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_select();
+        let (statement, params) = schema.to_sql_builder().build_select();
 
         assert_eq!(
             statement.as_str(),
@@ -626,10 +602,7 @@ mod query_schema_test {
         schema.trashed = Some(false);
         schema.area_id = Some(Uuid::new_v4());
 
-        let mut builder = SQLQueryBuilder::new(ProjectModel::TABLE);
-        schema.add_to_query(&mut builder);
-
-        let (statement, params) = builder.build_select();
+        let (statement, params) = schema.to_sql_builder().build_select();
 
         assert_eq!(
             statement.as_str(),
