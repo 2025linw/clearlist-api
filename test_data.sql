@@ -66,17 +66,17 @@ VALUES
 (
     '00000000-0000-40ff-9000-000000000001',
     'testuser1@email.com',
-    'not real hash'
+    '$argon2id$v=19$m=19456,t=2,p=1$P5v3HLpJWVyCApMuCafl3w$WJXvl9NWIgS+pDL8h3+esjovP3wtcVebM8QOb6mzpVQ' -- "testpassword"
 ),
 (
     '00000000-0000-40ff-9000-000000000002',
     'testuser2@email.com',
-    'not real hash'
+    '$argon2id$v=19$m=19456,t=2,p=1$P5v3HLpJWVyCApMuCafl3w$WJXvl9NWIgS+pDL8h3+esjovP3wtcVebM8QOb6mzpVQ' -- "testpassword"
 ),
 (
     '00000000-0000-40ff-9000-000000000003',
     'testuser3@email.com',
-    'not real hash'
+    '$argon2id$v=19$m=19456,t=2,p=1$P5v3HLpJWVyCApMuCafl3w$WJXvl9NWIgS+pDL8h3+esjovP3wtcVebM8QOb6mzpVQ' -- "testpassword"
 );
 
 
@@ -185,7 +185,7 @@ INSERT INTO data.tasks -- Task B
 	user_id,
 	completed_on,
 	logged_on,
-	trashed_on
+	deleted_on
 )
 VALUES
 (
@@ -375,7 +375,7 @@ INSERT INTO data.projects -- Project B
 	user_id,
 	completed_on,
 	logged_on,
-	trashed_on
+	deleted_on
 )
 VALUES
 (
