@@ -5,10 +5,10 @@ on:
     branches:
       - main
     paths:
-      - './.github/workflows/deploy-backend.yml'
-      - './src/**'
-      - './Cargo.toml'
-      - './Cargo.lock'
+      - '.github/workflows/deploy-backend.yml'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
 
 jobs:
   build-and-deploy:
