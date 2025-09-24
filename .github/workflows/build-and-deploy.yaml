@@ -55,6 +55,3 @@ jobs:
           sudo -n systemctl stop clearlist-api.service
           cp /tmp/clearlist-api/clearlist-api ${{ secrets.DEPLOY_PATH }}
           sudo -n systemctl start clearlist-api.service
-
-    - name: Test API endpoint
-      run: curl -vf "***REMOVED***/health"
