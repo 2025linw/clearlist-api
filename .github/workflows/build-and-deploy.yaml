@@ -1,11 +1,11 @@
-name: Deploy to backend
+name: Build and deploy to web server
 
 on:
   push:
     branches:
       - main
     paths:
-      - '.github/workflows/deploy-backend.yml'
+      - '.github/workflows/build-and-deploy.yaml'
       - 'src/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
