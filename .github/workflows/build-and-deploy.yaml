@@ -28,10 +28,10 @@ jobs:
         toolchain: stable
 
     - name: Run tests
-      run: cargo test --bin todo-api --verbose
+      run: cargo test --bin clearlist-api --verbose
 
     - name: Build release
-      run: cargo build --bin todo-api --release
+      run: cargo build --bin clearlist-api --release
 
     - name: Upload binary
       uses: appleboy/scp-action@v0.1.7
