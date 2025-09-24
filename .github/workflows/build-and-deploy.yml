@@ -43,7 +43,7 @@ jobs:
         proxy_username: ${{ secrets.PROXY_USER }}
         proxy_key: ${{ secrets.PROXY_KEY }}
         source: target/release/todo-api
-        target: /tmp/todo-api/
+        target: /tmp/clearlist-api/
         strip_components: 2
 
     - name: Setup server binary and restart
@@ -57,5 +57,5 @@ jobs:
         proxy_key: ${{ secrets.PROXY_KEY }}
         script: |
           sudo -n systemctl stop clearlist-api.service
-          cp /tmp/todo-api/todo-api ${{ secrets.DEPLOY_PATH }}
+          cp /tmp/clearlist-api/clearlist-api ${{ secrets.DEPLOY_PATH }}
           sudo -n systemctl start clearlist-api.service

@@ -1,8 +1,8 @@
 [package]
-name = "todo-api"
+name = "clearlist-api"
 version = "0.0.1"
 edition = "2024"
-default-run = "todo-api"
+default-run = "clearlist-api"
 
 [dependencies]
 argon2 = "0.5.3"

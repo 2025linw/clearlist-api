@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use deadpool_postgres::{Manager, ManagerConfig, Object, Pool};
 use tokio_postgres::{Config, NoTls};
 
@@ -10,15 +11,9 @@ pub struct DatabaseConn {
 
 impl DatabaseConn {
     pub fn connect(
-        host: String,
-        port: u16,
-        database: String,
-        user: String,
-        pass: String,
+        url: &str
     ) -> Result<Self> {
-        let mut pg_config = Config::new();
-        pg_config.host(host).port(port);
-        pg_config.user(user).password(pass).dbname(database);
+        let pg_config = Config::from_str(url)?;
 
         let manager = Manager::from_config(pg_config, NoTls, ManagerConfig::default());
 
