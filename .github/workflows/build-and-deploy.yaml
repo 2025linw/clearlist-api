@@ -57,4 +57,4 @@ jobs:
           sudo -n systemctl start clearlist-api.service
 
     - name: Test API endpoint
-      run: curl -f "***REMOVED***/health"
+      run: curl -vf "***REMOVED***/health"
