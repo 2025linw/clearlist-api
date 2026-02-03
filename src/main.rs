@@ -54,18 +54,16 @@ async fn main() {
         .init();
 
     debug!("Getting environment variables");
-    let srv_port = env::var("SRV_PORT").unwrap_or_else(|_| log_error_and_exit!("SRV_PROT not set"));
-
-    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| log_error_and_exit!("DATABASE_URL not set"));
+    let srv_port = env::var("SRV_PORT").unwrap_or_else(|_| log_error_and_exit!("SRV_PORT not set"));
 
     let pubkey_loc =
         env::var("PUBKEY_PATH").unwrap_or_else(|_| log_error_and_exit!("PUBKEY_PATH must be set"));
-    let privkey_loc =
-        env::var("PRIVKEY_PATH").unwrap_or_else(|_| log_error_and_exit!("PRIVKEY_PATH must be set"));
+    let privkey_loc = env::var("PRIVKEY_PATH")
+        .unwrap_or_else(|_| log_error_and_exit!("PRIVKEY_PATH must be set"));
 
     // Setup Database Connection Pool
     debug!("Setting up database connection");
-    let db_conn = match DatabaseConn::connect(&database_url) {
+    let db_conn = match DatabaseConn::connect_env() {
         Ok(c) => {
             if !c.is_active().await {
                 log_error_and_exit!("database is not active after connection");
