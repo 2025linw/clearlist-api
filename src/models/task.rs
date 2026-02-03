@@ -19,12 +19,13 @@ pub struct DatabaseModel {
 
     task_title: Option<String>,
     notes: Option<String>,
+    
     start_date: Option<NaiveDate>,
     start_time: Option<NaiveTime>,
     deadline: Option<NaiveDate>,
 
-    completed_on: Option<DateTime<Local>>,
-    logged_on: Option<DateTime<Local>>,
+    completed_at: Option<DateTime<Local>>,
+    logged_at: Option<DateTime<Local>>,
 
     area_id: Option<Uuid>,
     project_id: Option<Uuid>,
@@ -52,27 +53,28 @@ impl DatabaseModel {
 }
 
 impl DatabaseModel {
-    pub const TABLE: &str = "data.tasks";
+    pub const TABLE: &str = "clear_list.task";
 
     pub const ID: &str = "task_id";
 
-    pub const TITLE: &str = "task_title";
+    pub const TITLE: &str = "title";
     pub const NOTES: &str = "notes";
+
     pub const START_DATE: &str = "start_date";
     pub const START_TIME: &str = "start_time";
     pub const DEADLINE: &str = "deadline";
 
-    pub const COMPLETED: &str = "completed_on";
-    pub const LOGGED: &str = "logged_on";
+    pub const COMPLETED: &str = "completed_at";
+    pub const LOGGED: &str = "logged_at";
 
     pub const AREA_ID: &str = "area_id";
     pub const PROJECT_ID: &str = "project_id";
 
     pub const USER_ID: &str = "user_id";
 
-    pub const CREATED: &str = "created_on";
-    pub const UPDATED: &str = "updated_on";
-    pub const DELETED: &str = "deleted_on";
+    pub const CREATED: &str = "created_at";
+    pub const UPDATED: &str = "updated_at";
+    pub const DELETED: &str = "deleted_at";
 }
 
 impl From<Row> for DatabaseModel {
@@ -84,8 +86,29 @@ impl From<Row> for DatabaseModel {
             start_date: value.get(Self::START_DATE),
             start_time: value.get(Self::START_TIME),
             deadline: value.get(Self::DEADLINE),
-            completed_on: value.get(Self::COMPLETED),
-            logged_on: value.get(Self::LOGGED),
+            completed_at: value.get(Self::COMPLETED),
+            logged_at: value.get(Self::LOGGED),
+            area_id: value.get(Self::AREA_ID),
+            project_id: value.get(Self::PROJECT_ID),
+            tags: Vec::new(),
+            user_id: value.get(Self::USER_ID),
+            created_on: value.get(Self::CREATED),
+            updated_on: value.get(Self::UPDATED),
+            deleted_on: value.get(Self::DELETED),
+        }
+    }
+}
+impl From<&Row> for DatabaseModel {
+    fn from(value: &Row) -> Self {
+        Self {
+            id: value.get(Self::ID),
+            task_title: value.get(Self::TITLE),
+            notes: value.get(Self::NOTES),
+            start_date: value.get(Self::START_DATE),
+            start_time: value.get(Self::START_TIME),
+            deadline: value.get(Self::DEADLINE),
+            completed_at: value.get(Self::COMPLETED),
+            logged_at: value.get(Self::LOGGED),
             area_id: value.get(Self::AREA_ID),
             project_id: value.get(Self::PROJECT_ID),
             tags: Vec::new(),
@@ -108,8 +131,8 @@ impl ToResponse for DatabaseModel {
             start_date: self.start_date,
             start_time: self.start_time,
             deadline: self.deadline,
-            completed_on: self.completed_on,
-            logged_on: self.logged_on,
+            completed_at: self.completed_at,
+            logged_at: self.logged_at,
             area_id: self.area_id,
             project_id: self.project_id,
             tags: self.tags.iter().map(|t| t.to_response()).collect(),
@@ -133,8 +156,8 @@ pub struct ResponseModel {
     start_time: Option<NaiveTime>,
     deadline: Option<NaiveDate>,
 
-    completed_on: Option<DateTime<Local>>,
-    logged_on: Option<DateTime<Local>>,
+    completed_at: Option<DateTime<Local>>,
+    logged_at: Option<DateTime<Local>>,
 
     area_id: Option<Uuid>,
     project_id: Option<Uuid>,
@@ -594,7 +617,7 @@ mod update_schema {
 
         assert_eq!(
             statement.as_str(),
-            "UPDATE data.tasks SET updated_on=$1, completed_on=$2, logged_on=$3, deleted_on=$4 RETURNING task_id"
+            "UPDATE data.tasks SET updated_on=$1, completed_at=$2, logged_at=$3, deleted_on=$4 RETURNING task_id"
         );
         assert_eq!(params.len(), 4);
     }
@@ -610,7 +633,7 @@ mod update_schema {
 
         assert_eq!(
             statement.as_str(),
-            "UPDATE data.tasks SET updated_on=$1, completed_on=$2, logged_on=$3, deleted_on=$4 RETURNING task_id"
+            "UPDATE data.tasks SET updated_on=$1, completed_at=$2, logged_at=$3, deleted_on=$4 RETURNING task_id"
         );
         assert_eq!(params.len(), 4);
     }
@@ -650,7 +673,7 @@ mod update_schema {
 
         assert_eq!(
             statement.as_str(),
-            "UPDATE data.tasks SET updated_on=$1, task_title=$2, notes=$3, start_date=$4, start_time=$5, deadline=$6, completed_on=$7, logged_on=$8, area_id=$9, project_id=$10, deleted_on=$11 RETURNING task_id"
+            "UPDATE data.tasks SET updated_on=$1, task_title=$2, notes=$3, start_date=$4, start_time=$5, deadline=$6, completed_at=$7, logged_at=$8, area_id=$9, project_id=$10, deleted_on=$11 RETURNING task_id"
         );
         assert_eq!(params.len(), 11);
     }
@@ -737,7 +760,7 @@ mod query_schema {
 
         assert_eq!(
             statement.as_str(),
-            "SELECT * FROM data.tasks WHERE completed_on NOT NULL AND logged_on NOT NULL AND deleted_on NOT NULL"
+            "SELECT * FROM data.tasks WHERE completed_at NOT NULL AND logged_at NOT NULL AND deleted_on NOT NULL"
         );
         assert_eq!(params.len(), 0);
     }
@@ -753,7 +776,7 @@ mod query_schema {
 
         assert_eq!(
             statement.as_str(),
-            "SELECT * FROM data.tasks WHERE completed_on IS NULL AND logged_on IS NULL AND deleted_on IS NULL"
+            "SELECT * FROM data.tasks WHERE completed_at IS NULL AND logged_at IS NULL AND deleted_on IS NULL"
         );
         assert_eq!(params.len(), 0);
     }
@@ -793,7 +816,7 @@ mod query_schema {
 
         assert_eq!(
             statement.as_str(),
-            "SELECT * FROM data.tasks WHERE task_title ILIKE '%' || $1 || '%' AND notes ILIKE '%' || $2 || '%' AND start_date = $3 AND start_time = $4 AND deadline > $5 AND completed_on IS NULL AND logged_on NOT NULL AND area_id = $6 AND project_id = $7 AND deleted_on IS NULL"
+            "SELECT * FROM data.tasks WHERE task_title ILIKE '%' || $1 || '%' AND notes ILIKE '%' || $2 || '%' AND start_date = $3 AND start_time = $4 AND deadline > $5 AND completed_at IS NULL AND logged_at NOT NULL AND area_id = $6 AND project_id = $7 AND deleted_on IS NULL"
         );
         assert_eq!(params.len(), 7);
     }

@@ -1,10 +1,11 @@
-pub mod area;
 pub mod auth;
 pub mod jwt;
+pub mod user;
+
+pub mod area;
 pub mod project;
 pub mod tag;
 pub mod task;
-pub mod user;
 
 use bytes::BytesMut;
 use serde::Deserialize;
