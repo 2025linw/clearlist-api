@@ -35,6 +35,8 @@ jobs:
         oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
         oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
         tags: tag:ci
+    - name: Show Tailscale status
+      run: tailscale status
 
     - name: Upload binary to server
       uses: appleboy/scp-action@v0.1.7
