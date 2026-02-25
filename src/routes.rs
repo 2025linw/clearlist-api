@@ -1,9 +1,5 @@
-mod area;
-mod auth;
-mod project;
 mod tag;
 mod task;
-mod user;
 
 use std::sync::Arc;
 
@@ -44,58 +40,22 @@ fn create_rate_limiter(
 ) -> GovernorConfig<SmartIpKeyExtractor, NoOpMiddleware<QuantaInstant>> {
     GovernorConfigBuilder::default()
         .key_extractor(SmartIpKeyExtractor)
-        .per_second(refresh_rate)
         .burst_size(num_requests)
+        .per_second(refresh_rate)
         .finish()
         .unwrap()
 }
 
 /// Create API router for project
 pub fn create_api_router() -> Router<AppState> {
-    let auth_routes = Router::new()
-        .route("/register", post(auth::registration_handler))
-        .route("/login", post(auth::login_handler))
-        .route("/refresh", post(auth::refresh_handler))
-        // .route("/reset", post(auth::password_reset_handler))
-        .layer(GovernorLayer {
-            config: Arc::new(create_rate_limiter(4, 2)),
-        });
-    let user_routes = Router::new()
-        .route(
-            "/{id}",
-            get(user::retrieve_handler)
-                .patch(user::update_handler)
-                .delete(user::delete_handler),
-        )
-        .layer(GovernorLayer {
-            config: Arc::new(create_rate_limiter(4, 2)),
-        });
-
-    let task_route = create_resource_router(
+    let task_routes = create_resource_router(
         task::create_handler,
         task::retrieve_handler,
         task::update_handler,
         task::delete_handler,
         task::query_handler,
     );
-
-    let project_route = create_resource_router(
-        project::create_handler,
-        project::retrieve_handler,
-        project::update_handler,
-        project::delete_handler,
-        project::query_handler,
-    );
-
-    let area_route = create_resource_router(
-        area::create_handler,
-        area::retrieve_handler,
-        area::update_handler,
-        area::delete_handler,
-        area::query_handler,
-    );
-
-    let tag_route = create_resource_router(
+    let tag_routes = create_resource_router(
         tag::create_handler,
         tag::retrieve_handler,
         tag::update_handler,
@@ -104,18 +64,13 @@ pub fn create_api_router() -> Router<AppState> {
     );
 
     let api_routes = Router::new()
-        .nest("/tasks", task_route)
-        .nest("/projects", project_route)
-        .nest("/areas", area_route)
-        .nest("/tags", tag_route)
+        .nest("/tasks", task_routes)
+        .nest("/tags", tag_routes)
         .layer(GovernorLayer {
             config: Arc::new(create_rate_limiter(8, 1)),
         });
 
-    Router::new()
-        .nest("/auth", auth_routes)
-        .nest("/users", user_routes)
-        .merge(api_routes)
+    Router::new().merge(api_routes)
 }
 
 fn create_resource_router<C, R, U, D, Q, T1, T2, T3, T4, T5>(
@@ -138,12 +93,12 @@ where
     T5: 'static,
 {
     Router::new()
-        .route("/", post(query_handler))
-        .route("/create", post(create_handler))
+        .route("/", get(query_handler))
+        .route("/", post(create_handler))
         .route(
             "/{id}",
             get(retrieve_handler)
-                .patch(update_handler)
+                .put(update_handler)
                 .delete(delete_handler),
         )
 }

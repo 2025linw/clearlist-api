@@ -1,120 +1,161 @@
-use chrono::{NaiveDate, NaiveTime};
-use tokio_postgres::types::ToSql;
+use deadpool_postgres::Object;
+use tokio_postgres::Row;
 use uuid::Uuid;
 
-use crate::{error::Result, models::task::DatabaseModel};
+use crate::com::model::{Tag, Task};
 
-use super::{
-    DatabaseConn,
-    utils::{DateCmp, DateTimeFilter},
-};
+use super::{Error, Result};
 
-const OUTPUT: &str = "";
+pub async fn query_tasks(conn: &Object, limit: i64, offset: i64) -> Result<Vec<Task>> {
+    let rows: Vec<Row> = conn
+        .query(
+            "SELECT id, title, notes, start_date, start_time, deadline
+            FROM clear_list.tasks
+            LIMIT $1 OFFSET $2;",
+            &[&limit, &offset],
+        )
+        .await?;
 
-impl DatabaseConn {
-    pub async fn query_task(
-        &self,
-        user_id: Uuid,
+    let mut tasks: Vec<Task> = rows.into_iter().map(|row| row.into()).collect();
 
-        limit: usize,
-        offset: usize,
+    for task in tasks.iter_mut() {
+        task.tags = get_task_tags(conn, task.id).await?;
+    }
 
-        search: Option<String>,
+    Ok(tasks)
+}
 
-        start_date: Option<DateCmp<NaiveDate>>,
-        start_time: Option<DateCmp<NaiveTime>>,
-        deadline: Option<DateCmp<NaiveDate>>,
+pub async fn insert_task(conn: &mut Object, task: Task) -> Result<Uuid> {
+    let transaction = conn.transaction().await?;
 
-        project_id: Option<Uuid>,
-        area_id: Option<Uuid>,
+    let row: Row = transaction
+        .query_one(
+            "INSERT INTO clear_list.tasks (title, notes, start_date, start_time, deadline)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id;",
+            &[
+                &task.title,
+                &task.notes,
+                &task.start_date,
+                &task.start_time,
+                &task.deadline,
+            ],
+        )
+        .await?;
+    let task_id: Uuid = row.get("id");
 
-        completed: Option<bool>,
-        logged: Option<bool>,
-        deleted: Option<bool>,
-    ) -> Result<Vec<DatabaseModel>> {
-        let mut query = vec![format!("SELECT {OUTPUT} FROM clear_list.task")];
-        let mut params: Vec<&(dyn ToSql + Sync)> = vec![];
-
-        let search_query: String;
-        if search.is_some() {
-            query.push(format!("{} = ", DatabaseModel::TITLE));
-            search_query = format!("%${}%", params.len() + 1);
-
-            params.push(&search_query);
-        }
-        if let Some(cmp) = start_date {
-            query.push(cmp.to_sql(DatabaseModel::START_DATE, params.len() + 1));
-
-            params.push(&cmp)
-        }
-        if let Some(cmp) = start_time {
-            query.push(cmp.to_sql(DatabaseModel::START_DATE, params.len() + 1));
-        }
-        if let Some(cmp) = deadline {
-            query.push(cmp.to_sql(DatabaseModel::START_DATE, params.len() + 1));
-        }
-
-        query.push(format!("LIMIT {limit}"));
-        query.push(format!("OFFSET {offset}"));
-
-        let query_str = query.join(" ");
-
-        println!("{query_str}");
-
-        let tasks = self
-            .get_conn()
+    for tag in task.tags {
+        if transaction
+            .execute(
+                "INSERT INTO clear_list.task_tags (task_id, tag_id) VALUES ($1, $2);",
+                &[&task_id, &tag.id],
+            )
             .await?
-            .query(&query_str, &params)
-            .await?
-            .iter()
-            .map(|row| DatabaseModel::from(row))
-            .collect();
-
-        Ok(tasks)
+            != 1
+        {
+            return Err(Error::DatabaseOp(format!(
+                "failed to insert tag {} when adding task",
+                tag.id
+            )));
+        }
     }
 
-    pub async fn create_task(
-        &self,
-        user_id: Uuid,
+    transaction.commit().await?;
 
-        title: Option<String>,
-        notes: Option<String>,
+    Ok(task_id)
+}
 
-        start_date: Option<NaiveDate>,
-        start_time: Option<NaiveTime>,
-        deadline: Option<NaiveDate>,
+pub async fn select_task(conn: &Object, task_id: Uuid) -> Result<Option<Task>> {
+    let row_opt: Option<Row> = conn
+        .query_opt(
+            "SELECT id, title, notes, start_date, start_time, deadline
+            FROM clear_list.tasks
+            WHERE id = $1;",
+            &[&task_id],
+        )
+        .await?;
 
-        project_id: Option<Uuid>,
-        area_id: Option<Uuid>,
-    ) -> Result<DatabaseModel> {
-        todo!()
+    match row_opt {
+        None => Ok(None),
+        Some(row) => {
+            let mut task: Task = row.into();
+            task.tags = get_task_tags(conn, task_id).await?;
+
+            Ok(Some(task))
+        }
+    }
+}
+
+pub async fn update_task(conn: &mut Object, task_id: Uuid, task: Task) -> Result<Option<Task>> {
+    let transaction = conn.transaction().await?;
+
+    if transaction
+        .execute(
+            "UPDATE clear_list.tasks SET
+            (title, notes, start_date, start_time, deadline) =
+            ($2, $3, $4, $5, $6)
+            WHERE id = $1;",
+            &[
+                &task_id,
+                &task.title,
+                &task.notes,
+                &task.start_date,
+                &task.start_time,
+                &task.deadline,
+            ],
+        )
+        .await?
+        != 1
+    {
+        return Ok(None);
     }
 
-    pub async fn retrieve_task(&self, task_id: Uuid, user_id: Uuid) -> Result<DatabaseModel> {
-        todo!()
+    transaction
+        .execute(
+            "DELETE FROM clear_list.task_tags WHERE task_id = $1;",
+            &[&task_id],
+        )
+        .await?;
+    for tag in task.tags {
+        if transaction.execute("", &[]).await? != 1 {
+            return Err(Error::DatabaseOp(format!(
+                "failed to insert tag {} when updating task",
+                tag.id
+            )));
+        }
     }
 
-    pub async fn update_task(
-        &self,
+    transaction.commit().await?;
 
-        task_id: Uuid,
-        user_id: Uuid,
+    select_task(conn, task_id).await
+}
 
-        title: Option<String>,
-        notes: Option<String>,
-        start_date: Option<NaiveDate>,
-        start_time: Option<NaiveTime>,
-        deadline: Option<NaiveDate>,
-        completed: Option<bool>,
-        logged: Option<bool>,
-        project_id: Option<Uuid>,
-        area_id: Option<Uuid>,
-        deleted: Option<bool>,
-    ) -> Result<DatabaseModel> {
-        todo!()
+pub async fn delete_task(conn: &mut Object, task_id: Uuid) -> Result<Option<()>> {
+    let transaction = conn.transaction().await?;
+
+    if transaction
+        .execute("DELETE FROM clear_list.tasks WHERE id = $1;", &[&task_id])
+        .await?
+        != 1
+    {
+        return Ok(None);
     }
 
-    pub async fn delete_task(task_id: Uuid, user_id: Uuid) -> Result<DatabaseModel> {
-        todo!()
-    }
+    transaction.commit().await?;
+
+    Ok(Some(()))
+}
+
+pub async fn get_task_tags(conn: &Object, task_id: Uuid) -> Result<Vec<Tag>> {
+    let rows = conn
+        .query(
+            "SELECT tg.id, tg.label, tg.category
+            FROM clear_list.tags tg
+            JOIN clear_list.task_tags tt ON tg.id = tt.tag_id
+            WHERE tt.task_id = $1;",
+            &[&task_id],
+        )
+        .await?;
+
+    Ok(rows.into_iter().map(|row| row.into()).collect())
 }
