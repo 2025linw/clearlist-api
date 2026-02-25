@@ -2,184 +2,107 @@ use axum::{
     Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    response::IntoResponse,
 };
-use axum_jwt_auth::Claims;
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
     AppState,
-    data::{create_task, delete_task, query_task, retrieve_task, update_task},
-    error::ErrorResponse,
-    models::{
-        FilterOptions, ToResponse,
-        jwt::Claim,
-        task::{CreateRequest, QueryRequest, ResponseModel, UpdateRequest},
-    },
-    response::{ERR, OK, Response, SUCCESS},
+    com::model::{FilterOptions, Task},
+    db::task::{delete_task, insert_task, query_tasks, select_task, update_task},
+    error::Error,
+    response::{ERR, ErrorResponse, OK, Response, SUCCESS},
 };
 
 const NOT_FOUND: &str = "task not found";
-const NO_UPDATES: &str = "no task updates were requested";
 
 pub async fn query_handler(
-    Claims(claim): Claims<Claim>,
     State(data): State<AppState>,
-    Query(opts): Query<FilterOptions>,
-    Json(body): Json<QueryRequest>,
-) -> Result<impl IntoResponse, ErrorResponse> {
-    let user_id = claim.sub;
-
-    let page = opts.page.unwrap_or(1);
-    let limit = opts.limit.unwrap_or(25);
+    Query(FilterOptions { page, limit }): Query<FilterOptions>,
+) -> Result<Response, ErrorResponse> {
+    let page = i64::try_from(page).map_err(|e| Error::InvalidRequest(e.to_string()))?;
+    let limit = i64::try_from(limit).map_err(|e| Error::InvalidRequest(e.to_string()))?;
     let offset = (page - 1) * limit;
 
-    let tasks = data.db_conn.query_task(
-        limit,
-        offset,
-        user_id,
-        search,
-        date_filter,
-        completed,
-        logged,
-        project_id,
-        area_id,
-        deleted,
-    );
+    let conn = data.db_conn.get_conn().await?;
+
+    let tasks: Vec<Task> = query_tasks(&conn, limit, offset).await?;
 
     Ok(Response::with_data(
         StatusCode::OK,
         OK,
         json!({
             "count": tasks.len(),
-            "tasks": tasks.into_iter().map(|t| t.to_response()).collect::<Vec<ResponseModel>>(),
+            "tasks": tasks,
         }),
     ))
 }
 
 pub async fn create_handler(
-    Claims(claim): Claims<Claim>,
     State(data): State<AppState>,
-    Json(body): Json<CreateRequest>,
-) -> Result<impl IntoResponse, ErrorResponse> {
+    Json(body): Json<Task>,
+) -> Result<Response, ErrorResponse> {
     let mut conn = data.db_conn.get_conn().await?;
 
-    let user_id = claim.sub;
-
-    let task_id = create_task(&mut conn, user_id, body).await?;
-
-    let task = match retrieve_task(&conn, task_id, user_id).await? {
-        Some(t) => t,
-        None => {
-            return Err(ErrorResponse::with_msg(
-                StatusCode::NOT_FOUND,
-                ERR,
-                NOT_FOUND,
-            ));
-        }
-    };
+    let task_id = insert_task(&mut conn, body).await?;
 
     Ok(Response::with_data(
         StatusCode::CREATED,
         SUCCESS,
-        json!(task.to_response()),
+        json!({"taskId": task_id}),
     ))
 }
 
 pub async fn retrieve_handler(
-    Claims(claim): Claims<Claim>,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
-) -> Result<impl IntoResponse, ErrorResponse> {
+) -> Result<Response, ErrorResponse> {
     let conn = data.db_conn.get_conn().await?;
 
-    let user_id = claim.sub;
-
-    let task = match retrieve_task(&conn, task_id, user_id).await? {
-        Some(t) => t,
-        None => {
-            return Err(ErrorResponse::with_msg(
-                StatusCode::NOT_FOUND,
-                ERR,
-                NOT_FOUND,
-            ));
-        }
-    };
-
-    Ok(Response::with_data(
-        StatusCode::OK,
-        SUCCESS,
-        json!(task.to_response()),
-    ))
-}
-
-pub async fn update_handler(
-    Claims(claim): Claims<Claim>,
-    State(data): State<AppState>,
-    Path(task_id): Path<Uuid>,
-    Json(body): Json<UpdateRequest>,
-) -> Result<impl IntoResponse, ErrorResponse> {
-    let mut conn = data.db_conn.get_conn().await?;
-
-    let user_id = claim.sub;
-
-    if body.is_empty() {
-        return Err(ErrorResponse::with_msg(
-            StatusCode::BAD_REQUEST,
-            ERR,
-            NO_UPDATES,
-        ));
-    }
-
-    let task_id = match update_task(&mut conn, task_id, user_id, body).await? {
-        Some(t) => {
-            assert_eq!(
-                t, task_id,
-                "error occured with query, as the task ids do not match after update"
-            );
-
-            t
-        }
-        None => {
-            return Err(ErrorResponse::with_msg(
-                StatusCode::NOT_FOUND,
-                ERR,
-                NOT_FOUND,
-            ));
-        }
-    };
-
-    let task = match retrieve_task(&conn, task_id, user_id).await? {
-        Some(t) => t,
-        None => unreachable!("task should exist after update"),
-    };
-
-    Ok(Response::with_data(
-        StatusCode::OK,
-        SUCCESS,
-        json!(task.to_response()),
-    ))
-}
-
-pub async fn delete_handler(
-    Claims(claim): Claims<Claim>,
-    State(data): State<AppState>,
-    Path(task_id): Path<Uuid>,
-) -> Result<impl IntoResponse, ErrorResponse> {
-    let mut conn = data.db_conn.get_conn().await?;
-
-    let user_id = claim.sub;
-
-    if delete_task(&mut conn, task_id, user_id).await?.is_none() {
-        // TODO: consider other reasons for this function to return none
-
-        return Err(ErrorResponse::with_msg(
+    if let Some(task) = select_task(&conn, task_id).await? {
+        Ok(Response::with_data(StatusCode::OK, OK, json!(task)))
+    } else {
+        Err(ErrorResponse::with_msg(
             StatusCode::NOT_FOUND,
             ERR,
             NOT_FOUND,
-        ));
+        ))
     }
+}
 
-    Ok(Response::empty(StatusCode::NO_CONTENT, SUCCESS))
+pub async fn update_handler(
+    State(data): State<AppState>,
+    Path(task_id): Path<Uuid>,
+    Json(body): Json<Task>,
+) -> Result<Response, ErrorResponse> {
+    let mut conn = data.db_conn.get_conn().await?;
+
+    if let Some(task) = update_task(&mut conn, task_id, body).await? {
+        Ok(Response::with_data(StatusCode::OK, SUCCESS, json!(task)))
+    } else {
+        Err(ErrorResponse::with_msg(
+            StatusCode::NOT_FOUND,
+            ERR,
+            NOT_FOUND,
+        ))
+    }
+}
+
+pub async fn delete_handler(
+    State(data): State<AppState>,
+    Path(task_id): Path<Uuid>,
+) -> Result<Response, ErrorResponse> {
+    let mut conn = data.db_conn.get_conn().await?;
+
+    if let Some(()) = delete_task(&mut conn, task_id).await? {
+        Ok(Response::code(StatusCode::NO_CONTENT))
+    } else {
+        // TODO: consider other reasons for this function to return none
+
+        Err(ErrorResponse::with_msg(
+            StatusCode::NOT_FOUND,
+            ERR,
+            NOT_FOUND,
+        ))
+    }
 }

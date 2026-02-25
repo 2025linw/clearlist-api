@@ -38,7 +38,7 @@ jobs:
         proxy_host: ${{ secrets.PROXY_HOST }}
         proxy_username: ${{ secrets.PROXY_USER }}
         proxy_key: ${{ secrets.PROXY_KEY }}
-        source: target/release/clearlist-api
+        source: ./target/release/clearlist-api
         target: /tmp/clearlist-api/
         strip_components: 2
 

@@ -1,19 +1,18 @@
-mod area;
-mod project;
-mod tag;
-pub mod task;
-
+mod error;
 mod utils;
 
-use dotenvy::dotenv;
+pub mod tag;
+pub mod task;
+
+pub use error::{Error, Result};
+
 use std::{env, str::FromStr};
 
 use deadpool_postgres::{Manager, ManagerConfig, Object, Pool};
+use dotenvy::dotenv;
 use tokio_postgres::{Config, NoTls};
 
-use crate::error::{Error, Result};
-
-const MAX_SIZE: usize = 128;
+const MAX_SIZE: usize = 20;
 
 #[derive(Clone)]
 pub struct DatabaseConn {
@@ -34,7 +33,7 @@ impl DatabaseConn {
         let pool = Pool::builder(manager)
             .max_size(MAX_SIZE)
             .build()
-            .map_err(|e| Error::Internal(e.to_string()))?;
+            .map_err(|e| Error::DatabaseOp(e.to_string()))?;
 
         Ok(Self { pool })
     }
@@ -46,39 +45,18 @@ impl DatabaseConn {
         let pool = Pool::builder(manager)
             .max_size(MAX_SIZE)
             .build()
-            .map_err(|e| Error::Internal(e.to_string()))?;
+            .map_err(|e| Error::DatabaseOp(e.to_string()))?;
 
         Ok(Self { pool })
     }
 
     pub fn connect_env() -> Result<Self> {
-        dotenv().map_err(|e| Error::Internal(e.to_string()))?;
+        dotenv().map_err(|e| Error::DatabaseOp(e.to_string()))?;
 
         if env::var("DATABASE_URL").is_ok() {
             Self::connect_str(&env::var("DATABASE_URL").unwrap())
-        } else if env::var("DB_USER").is_ok() {
-            Self::connect(
-                &env::var("DB_USER").map_err(|e| {
-                    Error::Internal("DB_USER not in environment variables".to_string())
-                })?,
-                &env::var("DB_PASS").map_err(|e| {
-                    Error::Internal("DB_PASS not in environment variables".to_string())
-                })?,
-                &env::var("DB_HOST").map_err(|e| {
-                    Error::Internal("DB_HOST not in environment variables".to_string())
-                })?,
-                env::var("DB_PORT")
-                    .map_err(|_| {
-                        Error::Internal("DB_PORT not in environment variables".to_string())
-                    })?
-                    .parse::<u16>()
-                    .map_err(|_| Error::Internal("DB_PORT is not a number".to_string()))?,
-                &env::var("DB_NAME").unwrap(),
-            )
         } else {
-            Err(Error::Internal(
-                "No environment variables initialized".to_string(),
-            ))
+            Err(Error::DatabaseOp("DATABASE_URL not found".to_string()))
         }
     }
 

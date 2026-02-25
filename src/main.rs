@@ -1,50 +1,17 @@
-mod db;
-mod error;
-mod macros;
-mod response;
-mod util;
+use std::{env, net::SocketAddr};
 
-mod data;
-mod models;
-mod routes;
-
-use std::{env, fs, net::SocketAddr};
-
-use axum::{Router, extract::FromRef, routing::get};
-use axum_jwt_auth::JwtDecoderState;
-use dotenvy::dotenv;
-use jsonwebtoken::{DecodingKey, EncodingKey};
 use tokio::net::TcpListener;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
-use crate::{
-    models::jwt::Claim,
-    routes::{create_api_router, health_check_handler},
-    util::auth::create_decoder,
-};
+use clearlist_api::{AppState, DatabaseConn, create_app};
 
-use db::DatabaseConn;
-
-#[derive(Clone, FromRef)]
-pub struct AppState {
-    decoder: JwtDecoderState<Claim>,
-    db_conn: DatabaseConn,
-    decode_key: DecodingKey,
-    encode_key: EncodingKey,
-}
-
-const ENV_VAR_ERR: &str = "Unable to load environment variables from `.env`";
+// TODO: add anyhow
 
 // Server Main
 #[tokio::main]
 async fn main() {
-    // Load .env
-    dotenv().unwrap_or_else(|_| {
-        eprint!("{}", ENV_VAR_ERR);
-
-        log_error_and_exit!(ENV_VAR_ERR)
-    });
+    dotenvy::dotenv().ok();
 
     // Initialize logging
     tracing_subscriber::fmt()
@@ -54,65 +21,39 @@ async fn main() {
         .init();
 
     debug!("Getting environment variables");
-    let srv_port = env::var("SRV_PORT").unwrap_or_else(|_| log_error_and_exit!("SRV_PORT not set"));
+    let srv_port = match env::var("SRV_PORT") {
+        Ok(port) => port,
+        Err(_) => {
+            eprintln!("SRV_PORT not found in environment variables");
 
-    let pubkey_loc =
-        env::var("PUBKEY_PATH").unwrap_or_else(|_| log_error_and_exit!("PUBKEY_PATH must be set"));
-    let privkey_loc = env::var("PRIVKEY_PATH")
-        .unwrap_or_else(|_| log_error_and_exit!("PRIVKEY_PATH must be set"));
+            std::process::exit(1)
+        }
+    };
 
     // Setup Database Connection Pool
     debug!("Setting up database connection");
     let db_conn = match DatabaseConn::connect_env() {
-        Ok(c) => {
-            if !c.is_active().await {
-                log_error_and_exit!("database is not active after connection");
+        Ok(conn) => {
+            if !conn.is_active().await {
+                eprintln!("database connection is not active");
+
+                std::process::exit(1)
             }
 
-            c
+            conn
         }
         Err(e) => {
-            log_error_and_exit!("unable to connect to database: {:?}", e);
-        }
-    };
+            eprintln!("unable to connect to database: {:?}", e);
 
-    // Get encoding and decoding keys
-    debug!("Getting encoding and decoding key");
-    let encode_key = match fs::read(privkey_loc) {
-        Ok(k) => EncodingKey::from_ed_der(&k),
-        Err(e) => {
-            log_error_and_exit!("unable to read privkey: {}", e.to_string());
-        }
-    };
-
-    let decode_key = match fs::read(pubkey_loc) {
-        Ok(k) => DecodingKey::from_ed_der(&k),
-        Err(e) => {
-            log_error_and_exit!("unable to read pubkey: {}", e.to_string());
-        }
-    };
-
-    // Get decoder
-    debug!("Setting up token decoder");
-    let decoder = match create_decoder(&decode_key) {
-        Ok(d) => d,
-        Err(e) => {
-            log_error_and_exit!("unable to create decoder: {}", e.to_string());
+            std::process::exit(1)
         }
     };
 
     // Setup app state
-    let app_state = AppState {
-        decoder,
-        db_conn,
-        decode_key,
-        encode_key,
-    };
+    let app_state = AppState { db_conn };
 
-    // Get server routes
-    let router = Router::new()
-        .route("/health", get(health_check_handler))
-        .nest("/api", create_api_router());
+    // Init app
+    let app = create_app(app_state);
 
     debug!("Binding listener to port {srv_port}");
     let url = format!("0.0.0.0:{srv_port}");
@@ -121,10 +62,12 @@ async fn main() {
     info!("Starting server at {}", url);
     axum::serve(
         listener,
-        router
-            .with_state(app_state)
-            .into_make_service_with_connect_info::<SocketAddr>(),
+        app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await
-    .unwrap_or_else(|e| log_error_and_exit!("unable to start server: {}", e.to_string()));
+    .unwrap_or_else(|e| {
+        eprintln!("unable to start server: {}", e);
+
+        std::process::exit(1)
+    });
 }

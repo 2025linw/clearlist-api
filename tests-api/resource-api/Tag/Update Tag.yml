@@ -1,0 +1,22 @@
+info:
+  name: Update Tag
+  type: http
+  seq: 4
+
+http:
+  method: PUT
+  url: "{{base-url}}/api/tags/{{tag-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "label": "Updated Test Tag",
+        "category": "Updated Testing"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
