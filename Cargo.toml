@@ -6,8 +6,6 @@ default-run = "clearlist-api"
 
 [dependencies]
 axum = { version = "0.8.4", features = ["macros"] }
-axum-extra = { version = "0.10.1", features = ["cookie"] }
-bytes = "1.10.1"
 chrono = { version = "0.4.41", features = ["serde"] }
 deadpool-postgres = "0.14.1"
 dotenvy = "0.15.7"
