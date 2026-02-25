@@ -36,12 +36,6 @@ jobs:
         oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
         tags: tag:ci
 
-    - name: Show Tailscale status
-      run: tailscale status
-
-    - name: Show Tailscale status
-      run: ping ${{ secrets.DEPLOY_HOST }}
-
     - name: Upload binary to server
       uses: appleboy/scp-action@v0.1.7
       with:
