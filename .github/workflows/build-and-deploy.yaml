@@ -43,8 +43,8 @@ jobs:
         username: ${{ secrets.DEPLOY_USER }}
         key: ${{ secrets.DEPLOY_KEY }}
         source: ./target/release/clearlist-api
+        strip_components: 3
         target: /tmp/clearlist-api/
-        strip_components: 2
 
     - name: Deploy binary to working path and restart service
       uses: appleboy/ssh-action@v1.0.0

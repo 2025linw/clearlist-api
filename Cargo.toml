@@ -2,7 +2,6 @@
 name = "clearlist-api"
 version = "0.0.1"
 edition = "2024"
-default-run = "clearlist-api"
 
 [dependencies]
 axum = { version = "0.8.4", features = ["macros"] }
