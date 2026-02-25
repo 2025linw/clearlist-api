@@ -1,5 +1,5 @@
-name: dev
-color: "#CE4F3B"
+name: live
+color: "#2E8A54"
 variables:
   - name: base-url
     value: ***REMOVED***
