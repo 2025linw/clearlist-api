@@ -10,7 +10,7 @@ pub use db::DatabaseConn;
 
 use axum::{Router, extract::FromRef, http::Method, routing::get};
 use tower::ServiceBuilder;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{Any, CorsLayer};
 
 #[derive(Clone, FromRef)]
 pub struct AppState {
@@ -31,7 +31,8 @@ pub fn create_app(app_state: AppState) -> Router {
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-        .allow_origin(origins);
+        .allow_origin(origins)
+        .allow_headers(Any);
 
     Router::new()
         .layer(ServiceBuilder::new().layer(cors))
