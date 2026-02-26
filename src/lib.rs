@@ -26,7 +26,7 @@ impl AppState {
 pub fn create_app(app_state: AppState) -> Router {
     let origins = [
         "https://todo.saphynet.io".parse().unwrap(),
-        "http://localhost:8081".parse().unwrap(),
+        "localhost:8081".parse().unwrap(),
     ];
 
     let cors = CorsLayer::new()
