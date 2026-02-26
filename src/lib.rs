@@ -10,7 +10,7 @@ pub use db::DatabaseConn;
 
 use axum::{Router, extract::FromRef, http::{Method, header}, routing::get};
 use tower::ServiceBuilder;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{CorsLayer};
 
 #[derive(Clone, FromRef)]
 pub struct AppState {
