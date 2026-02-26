@@ -24,7 +24,10 @@ impl AppState {
 }
 
 pub fn create_app(app_state: AppState) -> Router {
-    let origins = ["***REMOVED***".parse().unwrap()];
+    let origins = [
+        "***REMOVED***".parse().unwrap(),
+        "***REMOVED***".parse().unwrap(),
+    ];
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
