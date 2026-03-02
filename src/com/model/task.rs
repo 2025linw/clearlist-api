@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::tag::Tag;
+use super::{Pagination, QueryDateFilter, Tag};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,4 +32,15 @@ impl From<tokio_postgres::Row> for Task {
             tags: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TaskQuery {
+    #[serde(flatten)]
+    pub pagination: Pagination,
+
+    pub start_from: Option<QueryDateFilter>,
+    pub start_to: Option<QueryDateFilter>,
+    pub deadline_from: Option<QueryDateFilter>,
+    pub deadline_to: Option<QueryDateFilter>,
 }

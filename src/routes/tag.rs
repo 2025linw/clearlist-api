@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
-    com::model::{FilterOptions, Tag},
+    com::model::{Pagination, Tag},
     db::tag::{delete_tag, insert_tag, query_tags, select_tag, update_tag},
     error::Error,
     response::{ERR, ErrorResponse, OK, Response, SUCCESS},
@@ -18,7 +18,7 @@ const NOT_FOUND: &str = "tag not found";
 
 pub async fn query_handler(
     State(data): State<AppState>,
-    Query(FilterOptions { page, limit }): Query<FilterOptions>,
+    Query(Pagination { page, limit }): Query<Pagination>,
 ) -> Result<Response, ErrorResponse> {
     let page = i64::try_from(page).map_err(|e| Error::InvalidRequest(e.to_string()))?;
     let limit = i64::try_from(limit).map_err(|e| Error::InvalidRequest(e.to_string()))?;

@@ -1,14 +1,15 @@
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::StatusCode,
 };
 use serde_json::json;
+use serde_qs::axum::QsForm as Query;
 use uuid::Uuid;
 
 use crate::{
     AppState,
-    com::model::{FilterOptions, Task},
+    com::model::{Pagination, Task, TaskQuery},
     db::task::{delete_task, insert_task, query_tasks, select_task, update_task},
     error::Error,
     response::{ERR, ErrorResponse, OK, Response, SUCCESS},
@@ -18,7 +19,13 @@ const NOT_FOUND: &str = "task not found";
 
 pub async fn query_handler(
     State(data): State<AppState>,
-    Query(FilterOptions { page, limit }): Query<FilterOptions>,
+    Query(TaskQuery {
+        pagination: Pagination { page, limit },
+        start_from,
+        start_to,
+        deadline_from,
+        deadline_to,
+    }): Query<TaskQuery>,
 ) -> Result<Response, ErrorResponse> {
     let page = i64::try_from(page).map_err(|e| Error::InvalidRequest(e.to_string()))?;
     let limit = i64::try_from(limit).map_err(|e| Error::InvalidRequest(e.to_string()))?;
