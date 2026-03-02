@@ -5,7 +5,19 @@ info:
 
 http:
   method: GET
-  url: "{{base-url}}/api/tasks"
+  url: "{{base-url}}/api/tasks?start_to[lte]=2026-3-5"
+  params:
+    - name: start_to[lte]
+      value: 2026-3-5
+      type: query
+    - name: limit
+      value: "5"
+      type: query
+      disabled: true
+    - name: page
+      value: "1"
+      type: query
+      disabled: true
   auth: inherit
 
 settings:
