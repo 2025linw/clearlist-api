@@ -17,7 +17,7 @@ pub struct Task {
     pub deadline: Option<chrono::NaiveDate>,
 
     #[serde(default)]
-    pub tags: Vec<Tag>,
+    pub tags: Option<Vec<Tag>>,
 }
 
 impl From<tokio_postgres::Row> for Task {
@@ -29,7 +29,7 @@ impl From<tokio_postgres::Row> for Task {
             start_date: value.get("start_date"),
             start_time: value.get("start_time"),
             deadline: value.get("deadline"),
-            tags: Vec::new(),
+            tags: None,
         }
     }
 }
