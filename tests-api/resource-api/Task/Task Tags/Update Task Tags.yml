@@ -1,0 +1,18 @@
+info:
+  name: Update Task Tags
+  type: http
+  seq: 2
+
+http:
+  method: PUT
+  url: "{{base-url}}/api/tasks/{{task-id}}/tags"
+  body:
+    type: json
+    data: "[]"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

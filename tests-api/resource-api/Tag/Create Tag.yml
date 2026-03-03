@@ -10,7 +10,7 @@ http:
     type: json
     data: |-
       {
-        "label": "Test Tag",
+        "label": "Test Tag 1",
         "category": "Testing"
       }
   auth: inherit
