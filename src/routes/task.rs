@@ -9,7 +9,11 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
-    com::model::{Task, TaskQuery, query::Pagination},
+    com::model::{
+        Task, TaskQuery,
+        db::SQLCmp,
+        query::{DateFilter, Pagination},
+    },
     db::task::{delete_task, insert_task, query_tasks, select_task, update_task},
     error::Error,
     response::{ERR, ErrorResponse, OK, Response, SUCCESS},
@@ -22,7 +26,7 @@ pub async fn query_handler(
     State(data): State<AppState>,
     Query(TaskQuery {
         pagination: Pagination { page, limit },
-        start,
+        start_date,
         deadline,
     }): Query<TaskQuery>,
 ) -> Result<Response, ErrorResponse> {
@@ -31,6 +35,59 @@ pub async fn query_handler(
     let offset = (page - 1) * limit;
 
     let conn = data.db_conn.get_conn().await?;
+
+    let start = if let Some(start) = start_date {
+        match start {
+            DateFilter::Exact(date) => Some(vec![(SQLCmp::Equal, date)]),
+            DateFilter::BracketInterval(interval) => {
+                let cmps = interval.get_cmps();
+
+                // check if any comparisons are overspecified (i.e. lt and lte, or gt and gte)
+                if cmps
+                    .iter()
+                    .filter(|(cmp, _)| {
+                        matches!(cmp, SQLCmp::LessThan) || matches!(cmp, SQLCmp::LessThanEqual)
+                    })
+                    .count()
+                    > 1
+                {
+                    return Err(Error::InvalidRequest(
+                        "conflicting comparison operators for 'start_date'".to_string(),
+                    )
+                    .into());
+                }
+
+                Some(cmps)
+            }
+            DateFilter::ISO8601Interval([start, end]) => Some(vec![
+                (SQLCmp::GreaterThanEqual, start),
+                (SQLCmp::LessThanEqual, end),
+            ]),
+        }
+    } else {
+        None
+    };
+    let deadline = if let Some(deadline) = deadline {
+        match deadline {
+            DateFilter::Exact(date) => Some(vec![(SQLCmp::Equal, date)]),
+            DateFilter::BracketInterval(interval) => {
+                if !interval.is_valid() {
+                    return Err(Error::InvalidRequest(
+                        "conflicting comparison operators for 'deadline'".to_string(),
+                    )
+                    .into());
+                }
+
+                Some(interval.get_cmps())
+            }
+            DateFilter::ISO8601Interval([start, end]) => Some(vec![
+                (SQLCmp::GreaterThanEqual, start),
+                (SQLCmp::LessThanEqual, end),
+            ]),
+        }
+    } else {
+        None
+    };
 
     let tasks: Vec<Task> = query_tasks(&conn, limit, offset, start, deadline).await?;
 
@@ -103,8 +160,6 @@ pub async fn delete_handler(
     if let Some(()) = delete_task(&mut conn, task_id).await? {
         Ok(Response::code(StatusCode::NO_CONTENT))
     } else {
-        // TODO: consider other reasons for this function to return none
-
         Err(ErrorResponse::with_msg(
             StatusCode::NOT_FOUND,
             ERR,
@@ -124,7 +179,7 @@ pub mod tag {
 
     use crate::{
         AppState,
-        com::model::{PathTaskTag, TaskTag},
+        com::model::query::PathTaskTag,
         db::task::tag,
         response::{ErrorResponse, OK, Response},
     };
@@ -163,7 +218,7 @@ pub mod tag {
     pub async fn update_handler(
         State(data): State<AppState>,
         Path(task_id): Path<Uuid>,
-        Json(TaskTag { tag_ids }): Json<TaskTag>,
+        Json(tag_ids): Json<Vec<Uuid>>,
     ) -> Result<Response, ErrorResponse> {
         let mut conn = data.db_conn.get_conn().await?;
 
