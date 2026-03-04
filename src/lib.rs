@@ -1,7 +1,9 @@
 mod com;
-mod db;
 mod error;
 mod response;
+mod util;
+
+mod db;
 mod routes;
 
 use routes::create_api_router;

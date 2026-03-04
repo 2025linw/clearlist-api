@@ -42,6 +42,6 @@ pub struct TaskQuery {
     #[serde(flatten)]
     pub pagination: Pagination,
 
-    pub start: Option<DateFilter>,
+    pub start_date: Option<DateFilter>,
     pub deadline: Option<DateFilter>,
 }

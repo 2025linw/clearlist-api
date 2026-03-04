@@ -1,10 +1,11 @@
+use chrono::NaiveDate;
 use deadpool_postgres::Object;
 use tokio_postgres::Row;
 use uuid::Uuid;
 
-use crate::com::{
-    model::{Task, query::DateFilter},
-    util::{SQLBuilder, SQLCmp},
+use crate::{
+    com::model::{Task, db::SQLCmp},
+    util::SQLBuilder,
 };
 
 use super::Result;
@@ -22,8 +23,8 @@ pub async fn query_tasks(
     conn: &Object,
     limit: i64,
     offset: i64,
-    start_filter: Option<DateFilter>,
-    deadline_filter: Option<DateFilter>,
+    start_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
+    deadline_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
 ) -> Result<Vec<Task>> {
     let mut builder = SQLBuilder::new("clear_list.tasks");
 
@@ -33,25 +34,13 @@ pub async fn query_tasks(
     builder.set_offset(offset);
 
     if let Some(start) = start_filter {
-        match start {
-            DateFilter::Exact(date) => {
-                builder.add_condition("start_date", SQLCmp::Equal, date);
-            }
-            DateFilter::Range([start, end]) => {
-                builder.add_condition("start_date", SQLCmp::GreaterThanEqual, start);
-                builder.add_condition("start_date", SQLCmp::LessThanEqual, end);
-            }
+        for (cmp, date) in start {
+            builder.add_condition("start_date", cmp, date);
         }
     }
     if let Some(deadline) = deadline_filter {
-        match deadline {
-            DateFilter::Exact(date) => {
-                builder.add_condition("deadline", SQLCmp::Equal, date);
-            }
-            DateFilter::Range([start, end]) => {
-                builder.add_condition("deadline", SQLCmp::GreaterThanEqual, start);
-                builder.add_condition("deadline", SQLCmp::LessThanEqual, end);
-            }
+        for (cmp, date) in deadline {
+            builder.add_condition("deadline", cmp, date);
         }
     }
 
