@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::query::Pagination;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Tag {
     #[serde(default)]
@@ -18,4 +20,10 @@ impl From<tokio_postgres::Row> for Tag {
             category: value.get("category"),
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TagQuery {
+    #[serde(flatten)]
+    pub pagination: Pagination,
 }

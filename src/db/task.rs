@@ -2,18 +2,61 @@ use deadpool_postgres::Object;
 use tokio_postgres::Row;
 use uuid::Uuid;
 
-use crate::com::model::{Tag, Task};
+use crate::com::{
+    model::{Tag, Task, query::DateFilter},
+    util::{SQLBuilder, SQLCmp},
+};
 
 use super::{Error, Result};
 
-pub async fn query_tasks(conn: &Object, limit: i64, offset: i64) -> Result<Vec<Task>> {
-    let rows: Vec<Row> = conn
-        .query(
-            "SELECT id, title, notes, start_date, start_time, deadline
-            FROM clear_list.tasks
-            LIMIT $1 OFFSET $2;",
-            &[&limit, &offset],
-        )
+const RETURNING: [&str; 6] = [
+    "id",
+    "title",
+    "notes",
+    "start_date",
+    "start_time",
+    "deadline",
+];
+
+pub async fn query_tasks(
+    conn: &Object,
+    limit: i64,
+    offset: i64,
+    start_filter: Option<DateFilter>,
+    deadline_filter: Option<DateFilter>,
+) -> Result<Vec<Task>> {
+    let mut builder = SQLBuilder::new("clear_list.tasks");
+
+    builder.set_returning_str(&RETURNING);
+
+    builder.set_limit(limit);
+    builder.set_offset(offset);
+
+    if let Some(start) = start_filter {
+        match start {
+            DateFilter::Exact(date) => {
+                builder.add_condition("start_date", SQLCmp::Equal, date);
+            }
+            DateFilter::Range([start, end]) => {
+                builder.add_condition("start_date", SQLCmp::GreaterThanEqual, start);
+                builder.add_condition("start_date", SQLCmp::LessThanEqual, end);
+            }
+        }
+    }
+    if let Some(deadline) = deadline_filter {
+        match deadline {
+            DateFilter::Exact(date) => {
+                builder.add_condition("deadline", SQLCmp::Equal, date);
+            }
+            DateFilter::Range([start, end]) => {
+                builder.add_condition("deadline", SQLCmp::GreaterThanEqual, start);
+                builder.add_condition("deadline", SQLCmp::LessThanEqual, end);
+            }
+        }
+    }
+
+    let rows = conn
+        .query(&builder.select_query(), &builder.params())
         .await?;
 
     let mut tasks: Vec<Task> = rows.into_iter().map(|row| row.into()).collect();

@@ -2,6 +2,8 @@ use chrono::NaiveDate;
 use serde::Deserialize;
 use serde_with::{DisplayFromStr, serde_as};
 
+use crate::com::util::deserialize_daterange;
+
 #[serde_as]
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -19,9 +21,10 @@ impl Default for Pagination {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct QueryDateFilter {
-    pub lt: Option<NaiveDate>,
-    pub gt: Option<NaiveDate>,
-    pub gte: Option<NaiveDate>,
-    pub lte: Option<NaiveDate>,
+#[serde(untagged)]
+pub enum DateFilter {
+    Exact(NaiveDate),
+
+    #[serde(deserialize_with = "deserialize_daterange")]
+    Range([NaiveDate; 2]),
 }

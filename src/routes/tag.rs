@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
-    com::model::{Pagination, Tag},
+    com::model::{Tag, TagQuery, query::Pagination},
     db::tag::{delete_tag, insert_tag, query_tags, select_tag, update_tag},
     error::Error,
     response::{ERR, ErrorResponse, OK, Response, SUCCESS},
@@ -18,7 +18,9 @@ const NOT_FOUND: &str = "tag not found";
 
 pub async fn query_handler(
     State(data): State<AppState>,
-    Query(Pagination { page, limit }): Query<Pagination>,
+    Query(TagQuery {
+        pagination: Pagination { page, limit },
+    }): Query<TagQuery>,
 ) -> Result<Response, ErrorResponse> {
     let page = i64::try_from(page).map_err(|e| Error::InvalidRequest(e.to_string()))?;
     let limit = i64::try_from(limit).map_err(|e| Error::InvalidRequest(e.to_string()))?;
@@ -89,8 +91,6 @@ pub async fn delete_handler(
     if let Some(()) = delete_tag(&mut conn, tag_id).await? {
         Ok(Response::code(StatusCode::NO_CONTENT))
     } else {
-        // TODO: consider other reasons for this function to return none
-
         Err(Response::with_msg(StatusCode::NOT_FOUND, ERR, NOT_FOUND))
     }
 }

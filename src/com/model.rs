@@ -1,8 +1,7 @@
-mod query;
 mod tag;
 mod task;
 
-pub use query::{Pagination, QueryDateFilter};
+pub mod query;
 
-pub use tag::Tag;
+pub use tag::{Tag, TagQuery};
 pub use task::{Task, TaskQuery};
