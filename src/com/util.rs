@@ -88,12 +88,8 @@ impl SQLBuilder {
         T: ToSql + Sync + Send + 'static,
     {
         self.owned.push(Box::new(param));
-        self.conditions.push(format!(
-            "{} {} ${}",
-            column,
-            cmp,
-            self.owned.len()
-        ));
+        self.conditions
+            .push(format!("{} {} ${}", column, cmp, self.owned.len()));
     }
 
     pub fn set_limit(&mut self, limit: i64) {
