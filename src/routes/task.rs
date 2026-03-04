@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
-    com::model::{Pagination, Task, TaskQuery},
+    com::model::{Task, TaskQuery, query::Pagination},
     db::task::{delete_task, insert_task, query_tasks, select_task, update_task},
     error::Error,
     response::{ERR, ErrorResponse, OK, Response, SUCCESS},
@@ -17,14 +17,13 @@ use crate::{
 
 const NOT_FOUND: &str = "task not found";
 
+#[axum::debug_handler]
 pub async fn query_handler(
     State(data): State<AppState>,
     Query(TaskQuery {
         pagination: Pagination { page, limit },
-        start_from,
-        start_to,
-        deadline_from,
-        deadline_to,
+        start,
+        deadline,
     }): Query<TaskQuery>,
 ) -> Result<Response, ErrorResponse> {
     let page = i64::try_from(page).map_err(|e| Error::InvalidRequest(e.to_string()))?;
@@ -33,7 +32,7 @@ pub async fn query_handler(
 
     let conn = data.db_conn.get_conn().await?;
 
-    let tasks: Vec<Task> = query_tasks(&conn, limit, offset).await?;
+    let tasks: Vec<Task> = query_tasks(&conn, limit, offset, start, deadline).await?;
 
     Ok(Response::with_data(
         StatusCode::OK,

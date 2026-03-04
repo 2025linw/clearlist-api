@@ -5,10 +5,10 @@ info:
 
 http:
   method: GET
-  url: "{{base-url}}/api/tasks?start_to[lte]=2026-3-5"
+  url: "{{base-url}}/api/tasks?start=2025-3-1/2025-3-7"
   params:
-    - name: start_to[lte]
-      value: 2026-3-5
+    - name: start
+      value: 2025-3-1/2025-3-7
       type: query
     - name: limit
       value: "5"
@@ -16,6 +16,18 @@ http:
       disabled: true
     - name: page
       value: "1"
+      type: query
+      disabled: true
+    - name: start
+      value: 2026-3-1
+      type: query
+      disabled: true
+    - name: deadline
+      value: 2026-4-1
+      type: query
+      disabled: true
+    - name: deadline
+      value: 2026-4-1/2026-4-7
       type: query
       disabled: true
   auth: inherit

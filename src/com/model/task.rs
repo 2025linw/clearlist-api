@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use super::{Pagination, QueryDateFilter, Tag};
+use super::{
+    Tag,
+    query::{DateFilter, Pagination},
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,8 +42,6 @@ pub struct TaskQuery {
     #[serde(flatten)]
     pub pagination: Pagination,
 
-    pub start_from: Option<QueryDateFilter>,
-    pub start_to: Option<QueryDateFilter>,
-    pub deadline_from: Option<QueryDateFilter>,
-    pub deadline_to: Option<QueryDateFilter>,
+    pub start: Option<DateFilter>,
+    pub deadline: Option<DateFilter>,
 }
