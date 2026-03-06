@@ -11,7 +11,7 @@ on:
       - 'Cargo.lock'
 
 jobs:
-  build-and-deploy:
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
