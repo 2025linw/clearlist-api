@@ -7,7 +7,6 @@ on:
     paths:
       - '.github/workflows/build-and-test-dev.yaml'
       - 'src/**'
-      - 'Cargo.toml'
       - 'Cargo.lock'
 
 jobs:
