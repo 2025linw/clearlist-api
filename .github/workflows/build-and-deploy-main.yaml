@@ -1,4 +1,4 @@
-name: Build and deploy to web server
+name: Build and deploy
 
 on:
   push:
@@ -23,11 +23,11 @@ jobs:
       with:
         toolchain: stable
 
-    - name: Run tests
-      run: cargo test --bin clearlist-api --release --verbose
-
     - name: Build release
       run: cargo build --bin clearlist-api --release
+
+    - name: Run tests
+      run: cargo test --bin clearlist-api --release --verbose
 
     - name: Connect to Tailscale
       uses: tailscale/github-action@v4
