@@ -1,9 +1,12 @@
 use chrono::NaiveDate;
-use sqlx::{PgPool, Postgres, QueryBuilder, query, query_scalar};
+use sqlx::{PgPool, QueryBuilder};
 use uuid::Uuid;
 
 use super::Result;
-use crate::com::model::{Task, db::SQLCmp};
+use crate::{
+    com::model::{Task, db::SQLCmp},
+    db::query_as_wrapper,
+};
 
 pub async fn query_tasks(
     conn: &PgPool,
@@ -65,16 +68,16 @@ pub async fn query_tasks(
 pub async fn insert_task(conn: &PgPool, task: Task) -> Result<Uuid> {
     let mut transaction = conn.begin().await?;
 
-    let task_id = query_scalar!(
+    let task_id = sqlx::query_scalar(
         "INSERT INTO clear_list.tasks (title, notes, start_date, start_time, deadline)
         VALUES ($1, $2, $3, $4, $5)
         RETURNING id",
-        task.title,
-        task.notes,
-        task.start_date,
-        task.start_time,
-        task.deadline,
     )
+    .bind(task.title)
+    .bind(task.notes)
+    .bind(task.start_date)
+    .bind(task.start_time)
+    .bind(task.deadline)
     .fetch_one(&mut *transaction)
     .await?;
 
@@ -93,10 +96,10 @@ pub async fn insert_task(conn: &PgPool, task: Task) -> Result<Uuid> {
 }
 
 pub async fn select_task(conn: &PgPool, task_id: Uuid) -> Result<Option<Task>> {
-    let task_opt = sqlx::query_as::<Postgres, Task>(
+    let task_opt = query_as_wrapper::<Task>(
         "SELECT id, title, notes, start_date, start_time, deadline
         FROM clear_list.tasks
-        WHERE id = $1;",
+        WHERE id = $1",
     )
     .bind(task_id)
     .fetch_optional(conn)
@@ -115,18 +118,18 @@ pub async fn select_task(conn: &PgPool, task_id: Uuid) -> Result<Option<Task>> {
 pub async fn update_task(conn: &PgPool, task_id: Uuid, task: Task) -> Result<Option<Task>> {
     let mut transaction = conn.begin().await?;
 
-    if query!(
+    if sqlx::query(
         "UPDATE clear_list.tasks SET
         (title, notes, start_date, start_time, deadline) =
         ($2, $3, $4, $5, $6)
-        WHERE id = $1;",
-        task_id,
-        task.title,
-        task.notes,
-        task.start_date,
-        task.start_time,
-        task.deadline,
+        WHERE id = $1",
     )
+    .bind(task_id)
+    .bind(task.title)
+    .bind(task.notes)
+    .bind(task.start_date)
+    .bind(task.start_time)
+    .bind(task.deadline)
     .execute(&mut *transaction)
     .await?
     .rows_affected()
@@ -152,7 +155,8 @@ pub async fn update_task(conn: &PgPool, task_id: Uuid, task: Task) -> Result<Opt
 pub async fn delete_task(conn: &PgPool, task_id: Uuid) -> Result<Option<()>> {
     let mut transaction = conn.begin().await?;
 
-    if query!("DELETE FROM clear_list.tasks WHERE id = $1;", task_id)
+    if sqlx::query("DELETE FROM clear_list.tasks WHERE id = $1")
+        .bind(task_id)
         .execute(&mut *transaction)
         .await?
         .rows_affected()
@@ -167,23 +171,25 @@ pub async fn delete_task(conn: &PgPool, task_id: Uuid) -> Result<Option<()>> {
 }
 
 pub mod tag {
-    use sqlx::{Executor, Postgres, QueryBuilder, query, query_as};
+    use sqlx::{Executor, Postgres, QueryBuilder};
     use uuid::Uuid;
 
-    use crate::{com::model::Tag, db::Result};
+    use crate::{
+        com::model::Tag,
+        db::{Result, query_as_wrapper},
+    };
 
     pub async fn query_task_tags<'e, E>(conn: E, task_id: Uuid) -> Result<Vec<Tag>>
     where
         E: Executor<'e, Database = Postgres>,
     {
-        Ok(query_as!(
-            Tag,
+        Ok(query_as_wrapper::<Tag>(
             "SELECT tg.id, tg.label, tg.category
             FROM clear_list.tags tg
             JOIN clear_list.task_tags tt ON tg.id = tt.tag_id
             WHERE tt.task_id = $1",
-            task_id
         )
+        .bind(task_id)
         .fetch_all(conn)
         .await?)
     }
@@ -213,14 +219,12 @@ pub mod tag {
     where
         E: Executor<'e, Database = Postgres>,
     {
-        if query!(
-            "INSERT INTO clear_list.task_tags (task_id, tag_id) VALUES ($1, $2)",
-            task_id,
-            tag_id
-        )
-        .execute(conn)
-        .await?
-        .rows_affected()
+        if sqlx::query("INSERT INTO clear_list.task_tags (task_id, tag_id) VALUES ($1, $2)")
+            .bind(task_id)
+            .bind(tag_id)
+            .execute(conn)
+            .await?
+            .rows_affected()
             != 1
         {
             return Ok(None);
@@ -233,14 +237,12 @@ pub mod tag {
     where
         E: Executor<'e, Database = Postgres>,
     {
-        if query!(
-            "DELETE FROM clear_list.task_tags WHERE task_id = $1 AND tag_id = $2",
-            task_id,
-            tag_id
-        )
-        .execute(conn)
-        .await?
-        .rows_affected()
+        if sqlx::query("DELETE FROM clear_list.task_tags WHERE task_id = $1 AND tag_id = $2")
+            .bind(task_id)
+            .bind(tag_id)
+            .execute(conn)
+            .await?
+            .rows_affected()
             == 0
         {
             return Ok(None);

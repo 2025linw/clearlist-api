@@ -1,18 +1,17 @@
-use sqlx::{PgPool, query, query_as, query_scalar};
+use sqlx::{PgPool, Postgres};
 use uuid::Uuid;
 
 use super::Result;
-use crate::com::model::Tag;
+use crate::{com::model::Tag, db::query_as_wrapper};
 
 pub async fn query_tags(conn: &PgPool, limit: i64, offset: i64) -> Result<Vec<Tag>> {
-    Ok(query_as!(
-        Tag,
+    Ok(sqlx::query_as::<Postgres, Tag>(
         "SELECT id, label, category
             FROM clear_list.tags
             LIMIT $1 OFFSET $2",
-        limit as i32,
-        offset as i32
     )
+    .bind(limit)
+    .bind(offset)
     .fetch_all(conn)
     .await?)
 }
@@ -20,13 +19,13 @@ pub async fn query_tags(conn: &PgPool, limit: i64, offset: i64) -> Result<Vec<Ta
 pub async fn insert_tag(conn: &PgPool, tag: Tag) -> Result<Uuid> {
     let mut transaction = conn.begin().await?;
 
-    let tag_id = query_scalar!(
+    let tag_id = sqlx::query_scalar(
         "INSERT INTO clear_list.tags (label, category)
         VALUES ($1, $2)
-        RETURNING id;",
-        tag.label,
-        tag.category,
+        RETURNING id",
     )
+    .bind(tag.label)
+    .bind(tag.category)
     .fetch_one(&mut *transaction)
     .await?;
 
@@ -36,13 +35,12 @@ pub async fn insert_tag(conn: &PgPool, tag: Tag) -> Result<Uuid> {
 }
 
 pub async fn select_tag(conn: &PgPool, tag_id: Uuid) -> Result<Option<Tag>> {
-    let tag_opt = query_as!(
-        Tag,
+    let tag_opt = query_as_wrapper::<Tag>(
         "SELECT id, label, category
         FROM clear_list.tags
         WHERE id = $1",
-        tag_id
     )
+    .bind(tag_id)
     .fetch_optional(conn)
     .await?;
 
@@ -55,15 +53,15 @@ pub async fn select_tag(conn: &PgPool, tag_id: Uuid) -> Result<Option<Tag>> {
 pub async fn update_tag(conn: &PgPool, tag_id: Uuid, tag: Tag) -> Result<Option<Tag>> {
     let mut transaction = conn.begin().await?;
 
-    if query!(
+    if sqlx::query(
         "UPDATE clear_list.tags SET
         (label, category) =
         ($2, $3)
         WHERE id = $1",
-        tag_id,
-        tag.label,
-        tag.category
     )
+    .bind(tag_id)
+    .bind(tag.label)
+    .bind(tag.category)
     .execute(&mut *transaction)
     .await?
     .rows_affected()
@@ -80,7 +78,8 @@ pub async fn update_tag(conn: &PgPool, tag_id: Uuid, tag: Tag) -> Result<Option<
 pub async fn delete_tag(conn: &PgPool, tag_id: Uuid) -> Result<Option<()>> {
     let mut transaction = conn.begin().await?;
 
-    if query!("DELETE FROM clear_list.tags WHERE id = $1", tag_id)
+    if sqlx::query("DELETE FROM clear_list.tags WHERE id = $1")
+        .bind(tag_id)
         .execute(&mut *transaction)
         .await?
         .rows_affected()
