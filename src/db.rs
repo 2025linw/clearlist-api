@@ -9,8 +9,9 @@ use std::env;
 
 use dotenvy::dotenv;
 use sqlx::{
-    PgPool,
+    Database, FromRow, PgPool, Postgres,
     postgres::{PgConnectOptions, PgPoolOptions, PgSslMode},
+    query::QueryAs,
 };
 
 const MAX_CONNECTIONS: u32 = 20;
@@ -71,4 +72,13 @@ impl DatabaseConn {
     pub fn get_pool_ref(&self) -> &PgPool {
         &self.pool
     }
+}
+
+fn query_as_wrapper<'q, T>(
+    sql: &'q str,
+) -> QueryAs<'q, Postgres, T, <Postgres as Database>::Arguments<'q>>
+where
+    T: for<'r> FromRow<'r, <Postgres as Database>::Row>,
+{
+    sqlx::query_as(sql)
 }
