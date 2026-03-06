@@ -2,4 +2,4 @@ name: live
 color: "#2E8A54"
 variables:
   - name: base-url
-    value: ***REMOVED***
+    value: https://todo.saphynet.io
