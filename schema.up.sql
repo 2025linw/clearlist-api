@@ -1,6 +1,6 @@
-CREATE SCHEMA clear_list AUTHORIZATION todo_app;
+CREATE SCHEMA IF NOT EXISTS clear_list;
 
-SET ROLE todo_app;
+/* Schema */
 
 -- Tag Table
 CREATE TABLE clear_list.tags (
@@ -34,3 +34,17 @@ CREATE TABLE clear_list.task_tags (
     FOREIGN KEY (task_id) REFERENCES clear_list.tasks (id) ON DELETE CASCADE,
     FOREIGN KEY (tag_id) REFERENCES clear_list.tags (id) ON DELETE CASCADE
 );
+
+
+/* User Permission */
+
+GRANT USAGE ON SCHEMA clear_list TO cl_api;
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+ON ALL TABLES IN SCHEMA clear_list
+TO cl_api;
+
+ALTER DEFAULT PRIVILEGES
+IN SCHEMA clear_list
+GRANT SELECT, INSERT, UPDATE, DELETE
+ON TABLES TO cl_api;

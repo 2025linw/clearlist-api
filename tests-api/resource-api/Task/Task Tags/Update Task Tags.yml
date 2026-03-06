@@ -8,7 +8,12 @@ http:
   url: "{{base-url}}/api/tasks/{{task-id}}/tags"
   body:
     type: json
-    data: "[]"
+    data: |-
+      [
+        "5850a307-878c-40de-9c44-edb2c45c7be5",
+        "f0db06d7-e8fb-4c86-9d3b-9f9d57ac35d8",
+        "7842f576-a41d-4477-89b4-4017856bdb66"
+      ]
   auth: inherit
 
 settings:

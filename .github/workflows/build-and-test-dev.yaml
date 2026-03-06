@@ -1,0 +1,30 @@
+name: Build and deploy to web server
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - '.github/workflows/build-and-deploy-dev.yaml'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+
+    - name: Run tests
+      run: cargo test --bin clearlist-api --release --verbose
+
+    - name: Build release
+      run: cargo build --bin clearlist-api --release

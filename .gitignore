@@ -2,8 +2,7 @@
 **/.DS_Store
 
 # Compilation Targets
-/target
+target
 
 # Private Keys
-**/*.der
 **/*.env

@@ -32,7 +32,7 @@ async fn main() {
 
     // Setup Database Connection Pool
     debug!("Setting up database connection");
-    let db_conn = match DatabaseConn::connect_env() {
+    let db_conn = match DatabaseConn::connect_env().await {
         Ok(conn) => {
             if !conn.is_active().await {
                 eprintln!("database connection is not active");
@@ -43,23 +43,23 @@ async fn main() {
             conn
         }
         Err(e) => {
-            eprintln!("unable to connect to database: {:?}", e);
+            eprintln!("unable to connect to database: '{}'", e);
 
             std::process::exit(1)
         }
     };
 
     // Setup app state
-    let app_state = AppState { db_conn };
+    let app_state = AppState::init(db_conn);
 
     // Init app
     let app = create_app(app_state);
 
-    debug!("Binding listener to port {srv_port}");
-    let url = format!("0.0.0.0:{srv_port}");
-    let listener = TcpListener::bind(&url).await.unwrap();
+    let listener = TcpListener::bind(&format!("0.0.0.0:{}", srv_port))
+        .await
+        .unwrap();
 
-    info!("Starting server at {}", url);
+    info!("Starting server on port {}", srv_port);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
