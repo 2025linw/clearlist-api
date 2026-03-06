@@ -1,40 +1,40 @@
 mod com;
 mod error;
 mod response;
-mod util;
 
 mod db;
 mod routes;
-
-use routes::create_api_router;
+mod util;
 
 pub use db::DatabaseConn;
 
+use std::env;
+
 use axum::{
     Router,
-    extract::FromRef,
-    http::{Method, header},
+    http::{HeaderValue, Method, header},
     routing::get,
 };
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 
-#[derive(Clone, FromRef)]
+#[derive(Clone)]
 pub struct AppState {
-    pub db_conn: DatabaseConn,
+    db: DatabaseConn,
 }
 
 impl AppState {
-    pub fn with_db(conn: DatabaseConn) -> Self {
-        Self { db_conn: conn }
+    pub fn init(conn: DatabaseConn) -> Self {
+        Self { db: conn }
     }
 }
 
 pub fn create_app(app_state: AppState) -> Router {
-    let origins = [
-        "https://todo.saphynet.io".parse().unwrap(),
-        "http://localhost:8081".parse().unwrap(),
-    ];
+    let origins: Vec<HeaderValue> = env::var("ALLOWED_ORIGINS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|url| url.parse().unwrap())
+        .collect();
     let headers = [
         header::CONTENT_TYPE,
         // header::AUTHORIZATION,
@@ -47,7 +47,7 @@ pub fn create_app(app_state: AppState) -> Router {
 
     Router::new()
         .route("/health", get(routes::health_check_handler))
-        .nest("/api", create_api_router())
+        .nest("/api", routes::create_api_router())
         .with_state(app_state)
         .layer(ServiceBuilder::new().layer(cors))
 }

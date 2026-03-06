@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 
 use super::query::Pagination;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, FromRow)]
 pub struct Tag {
     #[serde(default)]
     pub id: uuid::Uuid,
@@ -10,16 +11,6 @@ pub struct Tag {
     #[serde(default)]
     pub label: String,
     pub category: Option<String>,
-}
-
-impl From<tokio_postgres::Row> for Tag {
-    fn from(value: tokio_postgres::Row) -> Self {
-        Self {
-            id: value.get("id"),
-            label: value.get("label"),
-            category: value.get("category"),
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]

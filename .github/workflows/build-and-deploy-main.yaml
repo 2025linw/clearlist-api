@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - '.github/workflows/build-and-deploy.yaml'
+      - '.github/workflows/build-and-deploy-main.yaml'
       - 'src/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -24,7 +24,7 @@ jobs:
         toolchain: stable
 
     - name: Run tests
-      run: cargo test --bin clearlist-api --verbose
+      run: cargo test --bin clearlist-api --release --verbose
 
     - name: Build release
       run: cargo build --bin clearlist-api --release

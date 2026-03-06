@@ -1,54 +1,58 @@
 use chrono::NaiveDate;
-use deadpool_postgres::Object;
-use tokio_postgres::Row;
+use sqlx::{PgPool, Postgres, QueryBuilder, query, query_scalar};
 use uuid::Uuid;
 
-use crate::{
-    com::model::{Task, db::SQLCmp},
-    util::SQLBuilder,
-};
-
 use super::Result;
-
-const RETURNING: [&str; 6] = [
-    "id",
-    "title",
-    "notes",
-    "start_date",
-    "start_time",
-    "deadline",
-];
+use crate::com::model::{Task, db::SQLCmp};
 
 pub async fn query_tasks(
-    conn: &Object,
+    conn: &PgPool,
     limit: i64,
     offset: i64,
     start_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
     deadline_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
 ) -> Result<Vec<Task>> {
-    let mut builder = SQLBuilder::new("clear_list.tasks");
+    let mut builder = QueryBuilder::new("SELECT * FROM clear_list.tasks");
 
-    builder.set_returning_str(&RETURNING);
-
-    builder.set_limit(limit);
-    builder.set_offset(offset);
+    let mut has_where = false;
 
     if let Some(start) = start_filter {
         for (cmp, date) in start {
-            builder.add_condition("start_date", cmp, date);
+            if !has_where {
+                builder.push(" WHERE ");
+
+                has_where = true;
+            } else {
+                builder.push(" AND ");
+            }
+
+            builder.push(format!("start_date {} ", cmp));
+            builder.push_bind(date);
         }
     }
     if let Some(deadline) = deadline_filter {
         for (cmp, date) in deadline {
-            builder.add_condition("deadline", cmp, date);
+            if !has_where {
+                builder.push(" WHERE ");
+
+                has_where = true;
+            } else {
+                builder.push(" AND ");
+            }
+
+            builder.push(format!("deadline {} ", cmp));
+            builder.push_bind(date);
         }
     }
 
-    let rows = conn
-        .query(&builder.select_query(), &builder.params())
-        .await?;
+    builder.push(" LIMIT ");
+    builder.push_bind(limit);
+    builder.push(" OFFSET ");
+    builder.push_bind(offset);
 
-    let mut tasks: Vec<Task> = rows.into_iter().map(|row| row.into()).collect();
+    let query = builder.build_query_as::<Task>();
+
+    let mut tasks = query.fetch_all(conn).await?;
 
     // TODO: do this in main query?
     for task in tasks.iter_mut() {
@@ -58,28 +62,25 @@ pub async fn query_tasks(
     Ok(tasks)
 }
 
-pub async fn insert_task(conn: &mut Object, task: Task) -> Result<Uuid> {
-    let transaction = conn.transaction().await?;
+pub async fn insert_task(conn: &PgPool, task: Task) -> Result<Uuid> {
+    let mut transaction = conn.begin().await?;
 
-    let row: Row = transaction
-        .query_one(
-            "INSERT INTO clear_list.tasks (title, notes, start_date, start_time, deadline)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id;",
-            &[
-                &task.title,
-                &task.notes,
-                &task.start_date,
-                &task.start_time,
-                &task.deadline,
-            ],
-        )
-        .await?;
-    let task_id: Uuid = row.get("id");
+    let task_id = query_scalar!(
+        "INSERT INTO clear_list.tasks (title, notes, start_date, start_time, deadline)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id",
+        task.title,
+        task.notes,
+        task.start_date,
+        task.start_time,
+        task.deadline,
+    )
+    .fetch_one(&mut *transaction)
+    .await?;
 
     if let Some(tags) = task.tags {
         tag::update_task_tags(
-            &transaction,
+            &mut *transaction,
             task_id,
             tags.iter().map(|tag| tag.id).collect(),
         )
@@ -91,20 +92,19 @@ pub async fn insert_task(conn: &mut Object, task: Task) -> Result<Uuid> {
     Ok(task_id)
 }
 
-pub async fn select_task(conn: &Object, task_id: Uuid) -> Result<Option<Task>> {
-    let row_opt: Option<Row> = conn
-        .query_opt(
-            "SELECT id, title, notes, start_date, start_time, deadline
-            FROM clear_list.tasks
-            WHERE id = $1;",
-            &[&task_id],
-        )
-        .await?;
+pub async fn select_task(conn: &PgPool, task_id: Uuid) -> Result<Option<Task>> {
+    let task_opt = sqlx::query_as::<Postgres, Task>(
+        "SELECT id, title, notes, start_date, start_time, deadline
+        FROM clear_list.tasks
+        WHERE id = $1;",
+    )
+    .bind(task_id)
+    .fetch_optional(conn)
+    .await?;
 
-    match row_opt {
+    match task_opt {
         None => Ok(None),
-        Some(row) => {
-            let mut task: Task = row.into();
+        Some(mut task) => {
             task.tags = Some(tag::query_task_tags(conn, task_id).await?);
 
             Ok(Some(task))
@@ -112,40 +112,32 @@ pub async fn select_task(conn: &Object, task_id: Uuid) -> Result<Option<Task>> {
     }
 }
 
-pub async fn update_task(conn: &mut Object, task_id: Uuid, task: Task) -> Result<Option<Task>> {
-    let transaction = conn.transaction().await?;
+pub async fn update_task(conn: &PgPool, task_id: Uuid, task: Task) -> Result<Option<Task>> {
+    let mut transaction = conn.begin().await?;
 
-    if transaction
-        .execute(
-            "UPDATE clear_list.tasks SET
-            (title, notes, start_date, start_time, deadline) =
-            ($2, $3, $4, $5, $6)
-            WHERE id = $1;",
-            &[
-                &task_id,
-                &task.title,
-                &task.notes,
-                &task.start_date,
-                &task.start_time,
-                &task.deadline,
-            ],
-        )
-        .await?
-        != 1
+    if query!(
+        "UPDATE clear_list.tasks SET
+        (title, notes, start_date, start_time, deadline) =
+        ($2, $3, $4, $5, $6)
+        WHERE id = $1;",
+        task_id,
+        task.title,
+        task.notes,
+        task.start_date,
+        task.start_time,
+        task.deadline,
+    )
+    .execute(&mut *transaction)
+    .await?
+    .rows_affected()
+        == 0
     {
         return Ok(None);
     }
 
-    transaction
-        .execute(
-            "DELETE FROM clear_list.task_tags WHERE task_id = $1;",
-            &[&task_id],
-        )
-        .await?;
-
     if let Some(tags) = task.tags {
         tag::update_task_tags(
-            &transaction,
+            &mut *transaction,
             task_id,
             tags.iter().map(|tag| tag.id).collect(),
         )
@@ -157,13 +149,14 @@ pub async fn update_task(conn: &mut Object, task_id: Uuid, task: Task) -> Result
     select_task(conn, task_id).await
 }
 
-pub async fn delete_task(conn: &mut Object, task_id: Uuid) -> Result<Option<()>> {
-    let transaction = conn.transaction().await?;
+pub async fn delete_task(conn: &PgPool, task_id: Uuid) -> Result<Option<()>> {
+    let mut transaction = conn.begin().await?;
 
-    if transaction
-        .execute("DELETE FROM clear_list.tasks WHERE id = $1;", &[&task_id])
+    if query!("DELETE FROM clear_list.tasks WHERE id = $1;", task_id)
+        .execute(&mut *transaction)
         .await?
-        != 1
+        .rows_affected()
+        == 0
     {
         return Ok(None);
     }
@@ -174,84 +167,60 @@ pub async fn delete_task(conn: &mut Object, task_id: Uuid) -> Result<Option<()>>
 }
 
 pub mod tag {
-    use deadpool_postgres::{Object, Transaction};
+    use sqlx::{Executor, Postgres, QueryBuilder, query, query_as};
     use uuid::Uuid;
 
-    use crate::{
-        com::model::Tag,
-        db::{Error, Result},
-    };
+    use crate::{com::model::Tag, db::Result};
 
-    pub async fn query_task_tags(conn: &Object, task_id: Uuid) -> Result<Vec<Tag>> {
-        let rows = conn
-            .query(
-                "SELECT tg.id, tg.label, tg.category
+    pub async fn query_task_tags<'e, E>(conn: E, task_id: Uuid) -> Result<Vec<Tag>>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        Ok(query_as!(
+            Tag,
+            "SELECT tg.id, tg.label, tg.category
             FROM clear_list.tags tg
             JOIN clear_list.task_tags tt ON tg.id = tt.tag_id
-            WHERE tt.task_id = $1;",
-                &[&task_id],
-            )
-            .await?;
-
-        Ok(rows.into_iter().map(|row| row.into()).collect())
+            WHERE tt.task_id = $1",
+            task_id
+        )
+        .fetch_all(conn)
+        .await?)
     }
 
-    pub async fn update_task_tags(
-        transaction: &Transaction<'_>,
+    pub async fn update_task_tags<'e, E>(
+        conn: E,
         task_id: Uuid,
         tag_ids: Vec<Uuid>,
-    ) -> Result<Option<()>> {
-        transaction
-            .execute(
-                "DELETE FROM clear_list.task_tags WHERE task_id = $1;",
-                &[&task_id],
-            )
-            .await?;
+    ) -> Result<Option<()>>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        let mut builder =
+            QueryBuilder::new("WITH deleted AS (DELETE FROM clear_list.task_tags WHERE task_id = ");
+        builder.push_bind(task_id);
 
-        for tag_id in tag_ids {
-            if transaction
-                .execute(
-                    "INSERT INTO clear_list.task_tags (task_id, tag_id) VALUES ($1, $2);",
-                    &[&task_id, &tag_id],
-                )
-                .await?
-                != 1
-            {
-                return Err(Error::DatabaseOp(format!(
-                    "failed to insert tag {} for task {}",
-                    tag_id, task_id,
-                )));
-            }
-        }
+        builder.push(" RETURNING *), deleted_task_id AS (SELECT DISTINCT task_id FROM deleted) INSERT INTO clear_list.task_tags (task_id, tag_id) SELECT * FROM deleted_task_id CROSS JOIN UNNEST(");
+        builder.push_bind(tag_ids);
+        builder.push(")");
+
+        builder.build().execute(conn).await?;
 
         Ok(Some(()))
     }
 
-    pub async fn update_task_tags_query(
-        conn: &mut Object,
-        task_id: Uuid,
-        tag_ids: Vec<Uuid>,
-    ) -> Result<Option<()>> {
-        let transaction = conn.transaction().await?;
-
-        let res = update_task_tags(&transaction, task_id, tag_ids).await?;
-
-        transaction.commit().await?;
-
-        Ok(res)
-    }
-
-    pub async fn add_task_tag(
-        transaction: &Transaction<'_>,
-        task_id: Uuid,
-        tag_id: Uuid,
-    ) -> Result<Option<()>> {
-        if transaction
-            .execute(
-                "INSERT INTO clear_list.task_tags (task_id, tag_id) VALUES ($1, $2);",
-                &[&task_id, &tag_id],
-            )
-            .await?
+    pub async fn add_task_tag<'e, E>(conn: E, task_id: Uuid, tag_id: Uuid) -> Result<Option<()>>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        if query!(
+            "INSERT INTO clear_list.task_tags (task_id, tag_id) VALUES ($1, $2)",
+            task_id,
+            tag_id
+        )
+        .execute(conn)
+        .await?
+        .rows_affected()
             != 1
         {
             return Ok(None);
@@ -260,50 +229,23 @@ pub mod tag {
         Ok(Some(()))
     }
 
-    pub async fn add_task_tag_query(
-        conn: &mut Object,
-        task_id: Uuid,
-        tag_id: Uuid,
-    ) -> Result<Option<()>> {
-        let transaction = conn.transaction().await?;
-
-        let res = add_task_tag(&transaction, task_id, tag_id).await?;
-
-        transaction.commit().await?;
-
-        Ok(res)
-    }
-
-    pub async fn delete_task_tag(
-        transaction: &Transaction<'_>,
-        task_id: Uuid,
-        tag_id: Uuid,
-    ) -> Result<Option<()>> {
-        if transaction
-            .execute(
-                "DELETE FROM clear_list.task_tags WHERE task_id = $1 AND tag_id = $2",
-                &[&task_id, &tag_id],
-            )
-            .await?
-            != 1
+    pub async fn delete_task_tag<'e, E>(conn: E, task_id: Uuid, tag_id: Uuid) -> Result<Option<()>>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        if query!(
+            "DELETE FROM clear_list.task_tags WHERE task_id = $1 AND tag_id = $2",
+            task_id,
+            tag_id
+        )
+        .execute(conn)
+        .await?
+        .rows_affected()
+            == 0
         {
             return Ok(None);
         }
 
         Ok(Some(()))
-    }
-
-    pub async fn delete_task_tag_query(
-        conn: &mut Object,
-        task_id: Uuid,
-        tag_id: Uuid,
-    ) -> Result<Option<()>> {
-        let transaction = conn.transaction().await?;
-
-        let res = delete_task_tag(&transaction, task_id, tag_id).await?;
-
-        transaction.commit().await?;
-
-        Ok(res)
     }
 }
