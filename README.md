@@ -1,4 +1,4 @@
-# Clear List API
+# clearlist-api
 
 Backend API for Clear List Application
 
