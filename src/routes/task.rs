@@ -17,11 +17,13 @@ use crate::{
     db::task::{delete_task, insert_task, query_tasks, select_task, update_task},
     error::Error,
     response::{ERR, ErrorResponse, OK, Response, SUCCESS},
+    util::CurrentSession,
 };
 
 const NOT_FOUND: &str = "task not found";
 
 pub async fn query_handler(
+    CurrentSession(_user, _): CurrentSession,
     State(data): State<AppState>,
     Query(TaskQuery {
         pagination: Pagination { page, limit },
@@ -101,6 +103,7 @@ pub async fn query_handler(
 }
 
 pub async fn create_handler(
+    CurrentSession(_user, _): CurrentSession,
     State(data): State<AppState>,
     Json(body): Json<Task>,
 ) -> Result<Response, ErrorResponse> {
@@ -116,6 +119,7 @@ pub async fn create_handler(
 }
 
 pub async fn retrieve_handler(
+    CurrentSession(_user, _): CurrentSession,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
 ) -> Result<Response, ErrorResponse> {
@@ -133,6 +137,7 @@ pub async fn retrieve_handler(
 }
 
 pub async fn update_handler(
+    CurrentSession(_user, _): CurrentSession,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
     Json(body): Json<Task>,
@@ -151,6 +156,7 @@ pub async fn update_handler(
 }
 
 pub async fn delete_handler(
+    CurrentSession(_user, _): CurrentSession,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
 ) -> Result<Response, ErrorResponse> {
@@ -181,9 +187,11 @@ pub mod tag {
         com::model::query::PathTaskTag,
         db::task::tag,
         response::{ErrorResponse, OK, Response},
+        util::CurrentSession,
     };
 
     pub async fn query_handler(
+        CurrentSession(_user, _): CurrentSession,
         State(data): State<AppState>,
         Path(task_id): Path<Uuid>,
     ) -> Result<Response, ErrorResponse> {
@@ -202,6 +210,7 @@ pub mod tag {
     }
 
     pub async fn create_handler(
+        CurrentSession(_user, _): CurrentSession,
         State(data): State<AppState>,
         Path(PathTaskTag { task_id, tag_id }): Path<PathTaskTag>,
     ) -> Result<Response, ErrorResponse> {
@@ -215,6 +224,7 @@ pub mod tag {
     }
 
     pub async fn update_handler(
+        CurrentSession(_user, _): CurrentSession,
         State(data): State<AppState>,
         Path(task_id): Path<Uuid>,
         Json(tag_ids): Json<Vec<Uuid>>,
@@ -229,6 +239,7 @@ pub mod tag {
     }
 
     pub async fn delete_handler(
+        CurrentSession(_user, _): CurrentSession,
         State(data): State<AppState>,
         Path(PathTaskTag { task_id, tag_id }): Path<PathTaskTag>,
     ) -> Result<Response, ErrorResponse> {

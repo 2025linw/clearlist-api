@@ -7,7 +7,7 @@ use crate::{com::model::Tag, db::query_as_wrapper};
 pub async fn query_tags(conn: &PgPool, limit: i64, offset: i64) -> Result<Vec<Tag>> {
     Ok(sqlx::query_as::<Postgres, Tag>(
         "SELECT id, label, category
-            FROM clear_list.tags
+            FROM app.tags
             LIMIT $1 OFFSET $2",
     )
     .bind(limit)
@@ -20,7 +20,7 @@ pub async fn insert_tag(conn: &PgPool, tag: Tag) -> Result<Uuid> {
     let mut transaction = conn.begin().await?;
 
     let tag_id = sqlx::query_scalar(
-        "INSERT INTO clear_list.tags (label, category)
+        "INSERT INTO app.tags (label, category)
         VALUES ($1, $2)
         RETURNING id",
     )
@@ -37,7 +37,7 @@ pub async fn insert_tag(conn: &PgPool, tag: Tag) -> Result<Uuid> {
 pub async fn select_tag(conn: &PgPool, tag_id: Uuid) -> Result<Option<Tag>> {
     let tag_opt = query_as_wrapper::<Tag>(
         "SELECT id, label, category
-        FROM clear_list.tags
+        FROM app.tags
         WHERE id = $1",
     )
     .bind(tag_id)
@@ -54,7 +54,7 @@ pub async fn update_tag(conn: &PgPool, tag_id: Uuid, tag: Tag) -> Result<Option<
     let mut transaction = conn.begin().await?;
 
     if sqlx::query(
-        "UPDATE clear_list.tags SET
+        "UPDATE app.tags SET
         (label, category) =
         ($2, $3)
         WHERE id = $1",
@@ -78,7 +78,7 @@ pub async fn update_tag(conn: &PgPool, tag_id: Uuid, tag: Tag) -> Result<Option<
 pub async fn delete_tag(conn: &PgPool, tag_id: Uuid) -> Result<Option<()>> {
     let mut transaction = conn.begin().await?;
 
-    if sqlx::query("DELETE FROM clear_list.tags WHERE id = $1")
+    if sqlx::query("DELETE FROM app.tags WHERE id = $1")
         .bind(tag_id)
         .execute(&mut *transaction)
         .await?

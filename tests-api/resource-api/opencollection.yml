@@ -13,11 +13,6 @@ config:
         username: ""
         password: ""
       bypassProxy: ""
-
-request:
-  auth:
-    type: bearer
-    token: "{{accessToken}}"
 bundled: false
 extensions:
   bruno:

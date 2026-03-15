@@ -11,12 +11,13 @@ use crate::{
     com::model::{Tag, TagQuery, query::Pagination},
     db::tag::{delete_tag, insert_tag, query_tags, select_tag, update_tag},
     error::Error,
-    response::{ERR, ErrorResponse, OK, Response, SUCCESS},
+    response::{ERR, ErrorResponse, OK, Response, SUCCESS}, util::CurrentSession,
 };
 
 const NOT_FOUND: &str = "tag not found";
 
 pub async fn query_handler(
+    CurrentSession(_user, _): CurrentSession,
     State(data): State<AppState>,
     Query(TagQuery {
         pagination: Pagination { page, limit },
@@ -41,6 +42,7 @@ pub async fn query_handler(
 }
 
 pub async fn create_handler(
+    CurrentSession(_user, _): CurrentSession,
     State(data): State<AppState>,
     Json(body): Json<Tag>,
 ) -> Result<Response, ErrorResponse> {
@@ -56,6 +58,7 @@ pub async fn create_handler(
 }
 
 pub async fn retrieve_handler(
+    CurrentSession(_user, _): CurrentSession,
     State(data): State<AppState>,
     Path(tag_id): Path<Uuid>,
 ) -> Result<Response, ErrorResponse> {
@@ -69,6 +72,7 @@ pub async fn retrieve_handler(
 }
 
 pub async fn update_handler(
+    CurrentSession(_user, _): CurrentSession,
     State(data): State<AppState>,
     Path(tag_id): Path<Uuid>,
     Json(body): Json<Tag>,
@@ -83,6 +87,7 @@ pub async fn update_handler(
 }
 
 pub async fn delete_handler(
+    CurrentSession(_user, _): CurrentSession,
     State(data): State<AppState>,
     Path(tag_id): Path<Uuid>,
 ) -> Result<Response, ErrorResponse> {

@@ -15,7 +15,7 @@ pub async fn query_tasks(
     start_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
     deadline_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
 ) -> Result<Vec<Task>> {
-    let mut builder = QueryBuilder::new("SELECT * FROM clear_list.tasks");
+    let mut builder = QueryBuilder::new("SELECT * FROM app.tasks");
 
     let mut has_where = false;
 
@@ -69,7 +69,7 @@ pub async fn insert_task(conn: &PgPool, task: Task) -> Result<Uuid> {
     let mut transaction = conn.begin().await?;
 
     let task_id = sqlx::query_scalar(
-        "INSERT INTO clear_list.tasks (title, notes, start_date, start_time, deadline)
+        "INSERT INTO app.tasks (title, notes, start_date, start_time, deadline)
         VALUES ($1, $2, $3, $4, $5)
         RETURNING id",
     )
@@ -98,7 +98,7 @@ pub async fn insert_task(conn: &PgPool, task: Task) -> Result<Uuid> {
 pub async fn select_task(conn: &PgPool, task_id: Uuid) -> Result<Option<Task>> {
     let task_opt = query_as_wrapper::<Task>(
         "SELECT id, title, notes, start_date, start_time, deadline
-        FROM clear_list.tasks
+        FROM app.tasks
         WHERE id = $1",
     )
     .bind(task_id)
@@ -119,7 +119,7 @@ pub async fn update_task(conn: &PgPool, task_id: Uuid, task: Task) -> Result<Opt
     let mut transaction = conn.begin().await?;
 
     if sqlx::query(
-        "UPDATE clear_list.tasks SET
+        "UPDATE app.tasks SET
         (title, notes, start_date, start_time, deadline) =
         ($2, $3, $4, $5, $6)
         WHERE id = $1",
@@ -155,7 +155,7 @@ pub async fn update_task(conn: &PgPool, task_id: Uuid, task: Task) -> Result<Opt
 pub async fn delete_task(conn: &PgPool, task_id: Uuid) -> Result<Option<()>> {
     let mut transaction = conn.begin().await?;
 
-    if sqlx::query("DELETE FROM clear_list.tasks WHERE id = $1")
+    if sqlx::query("DELETE FROM app.tasks WHERE id = $1")
         .bind(task_id)
         .execute(&mut *transaction)
         .await?
@@ -185,8 +185,8 @@ pub mod tag {
     {
         Ok(query_as_wrapper::<Tag>(
             "SELECT tg.id, tg.label, tg.category
-            FROM clear_list.tags tg
-            JOIN clear_list.task_tags tt ON tg.id = tt.tag_id
+            FROM app.tags tg
+            JOIN app.task_tags tt ON tg.id = tt.tag_id
             WHERE tt.task_id = $1",
         )
         .bind(task_id)
@@ -203,10 +203,10 @@ pub mod tag {
         E: Executor<'e, Database = Postgres>,
     {
         let mut builder =
-            QueryBuilder::new("WITH deleted AS (DELETE FROM clear_list.task_tags WHERE task_id = ");
+            QueryBuilder::new("WITH deleted AS (DELETE FROM app.task_tags WHERE task_id = ");
         builder.push_bind(task_id);
 
-        builder.push(" RETURNING *), deleted_task_id AS (SELECT DISTINCT task_id FROM deleted) INSERT INTO clear_list.task_tags (task_id, tag_id) SELECT * FROM deleted_task_id CROSS JOIN UNNEST(");
+        builder.push(" RETURNING *), deleted_task_id AS (SELECT DISTINCT task_id FROM deleted) INSERT INTO app.task_tags (task_id, tag_id) SELECT * FROM deleted_task_id CROSS JOIN UNNEST(");
         builder.push_bind(tag_ids);
         builder.push(")");
 
@@ -219,7 +219,7 @@ pub mod tag {
     where
         E: Executor<'e, Database = Postgres>,
     {
-        if sqlx::query("INSERT INTO clear_list.task_tags (task_id, tag_id) VALUES ($1, $2)")
+        if sqlx::query("INSERT INTO app.task_tags (task_id, tag_id) VALUES ($1, $2)")
             .bind(task_id)
             .bind(tag_id)
             .execute(conn)
@@ -237,7 +237,7 @@ pub mod tag {
     where
         E: Executor<'e, Database = Postgres>,
     {
-        if sqlx::query("DELETE FROM clear_list.task_tags WHERE task_id = $1 AND tag_id = $2")
+        if sqlx::query("DELETE FROM app.task_tags WHERE task_id = $1 AND tag_id = $2")
             .bind(task_id)
             .bind(tag_id)
             .execute(conn)

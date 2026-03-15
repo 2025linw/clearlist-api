@@ -1,50 +1,49 @@
-CREATE SCHEMA IF NOT EXISTS clear_list;
+CREATE SCHEMA IF NOT EXISTS app;
 
 /* Schema */
 
 -- Tag Table
-CREATE TABLE clear_list.tags (
-    id UUID DEFAULT gen_random_uuid(),
+CREATE TABLE app.tags (
+    id UUID PRIMARY KEY DEFAULT uuidv4(),
 
     label VARCHAR (255) NOT NULL,
-    category VARCHAR (255),
-
-    PRIMARY KEY (id)
+    category VARCHAR (255)
 );
 
 -- Task Table
-CREATE TABLE clear_list.tasks (
-    id UUID DEFAULT gen_random_uuid(),
+CREATE TABLE app.tasks (
+    id UUID PRIMARY KEY DEFAULT uuidv4(),
 
     title VARCHAR (255) NOT NULL,
     notes TEXT,
     start_date DATE,
     start_time TIME (0),
-    deadline DATE,
-
-    PRIMARY KEY (id)
+    deadline DATE
 );
 
 -- Task-Tag Table
-CREATE TABLE clear_list.task_tags (
-    task_id UUID,
-    tag_id UUID,
+CREATE TABLE app.task_tags (
+    task_id UUID NOT NULL,
+    tag_id UUID NOT NULL,
 
     PRIMARY KEY (task_id, tag_id),
-    FOREIGN KEY (task_id) REFERENCES clear_list.tasks (id) ON DELETE CASCADE,
-    FOREIGN KEY (tag_id) REFERENCES clear_list.tags (id) ON DELETE CASCADE
+    FOREIGN KEY (task_id) REFERENCES app.tasks (id) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES app.tags (id) ON DELETE CASCADE
 );
 
 
 /* User Permission */
 
-GRANT USAGE ON SCHEMA clear_list TO cl_api;
+GRANT USAGE ON SCHEMA app TO cl_api;
+GRANT USAGE ON SCHEMA auth TO cl_api;
 
-GRANT SELECT, INSERT, UPDATE, DELETE
-ON ALL TABLES IN SCHEMA clear_list
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+app.tasks,
+app.tags,
+app.task_tags
 TO cl_api;
 
-ALTER DEFAULT PRIVILEGES
-IN SCHEMA clear_list
-GRANT SELECT, INSERT, UPDATE, DELETE
-ON TABLES TO cl_api;
+GRANT SELECT ON
+auth.session,
+auth.user
+TO cl_api;

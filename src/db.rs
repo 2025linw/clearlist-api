@@ -7,7 +7,6 @@ pub use error::{Error, Result};
 
 use std::env;
 
-use dotenvy::dotenv;
 use sqlx::{
     Database, FromRow, PgPool, Postgres,
     postgres::{PgConnectOptions, PgPoolOptions, PgSslMode},
@@ -47,8 +46,6 @@ impl DatabaseConn {
     }
 
     pub async fn connect_env() -> Result<Self> {
-        dotenv().map_err(|e| Error::Operation(e.to_string()))?;
-
         if env::var("DATABASE_URL").is_ok() {
             Self::connect_str(&env::var("DATABASE_URL").unwrap()).await
         } else {
