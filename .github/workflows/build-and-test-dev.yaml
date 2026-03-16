@@ -22,8 +22,11 @@ jobs:
       with:
         toolchain: stable
 
-    - name: Build release
-      run: cargo build --bin clearlist-api --release
+    - name: Build
+      run: cargo build --bin clearlist-api
+
+    - name: Run clippy
+      run: cargo clippy --bin clearlist-api
 
     - name: Run tests
-      run: cargo test --bin clearlist-api --release --verbose
+      run: cargo test --bin clearlist-api --verbose
