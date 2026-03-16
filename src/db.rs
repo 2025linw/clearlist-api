@@ -4,6 +4,7 @@ pub mod tag;
 pub mod task;
 
 pub use error::{Error, Result};
+use uuid::Uuid;
 
 use std::env;
 
@@ -78,4 +79,19 @@ where
     T: for<'r> FromRow<'r, <Postgres as Database>::Row>,
 {
     sqlx::query_as(sql)
+}
+
+pub async fn is_task_exists(conn: &PgPool, task_id: Uuid, user_id: String) -> Result<bool> {
+    if sqlx::query("SELECT * FROM app.tasks WHERE id = $1 AND created_by = $2")
+        .bind(task_id)
+        .bind(user_id)
+        .execute(conn)
+        .await?
+        .rows_affected()
+        == 0
+    {
+        Ok(false)
+    } else {
+        Ok(true)
+    }
 }

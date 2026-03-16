@@ -12,9 +12,9 @@ http:
       {
         "title": "Updated Test Title",
         "notes": "This is a sample note for 'Updated Test Title'",
-        "startDate": "2025-3-5",
-        "startTime": "16:00",
-        "deadline": "2025-4-5"
+        "startDate": "2027-1-2",
+      //   "startAt": "2027-01-02T20:00:00.000Z",
+        "deadline": "2027-2-1"
       }
   auth: inherit
 

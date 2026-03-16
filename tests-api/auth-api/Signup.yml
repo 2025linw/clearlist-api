@@ -1,17 +1,18 @@
 info:
-  name: Login
+  name: Signup
   type: http
-  seq: 2
+  seq: 1
 
 http:
   method: POST
-  url: "{{base-url}}/api/auth/sign-in/email"
+  url: "{{base-url}}/api/auth/sign-up/email"
   body:
     type: json
     data: |-
       {
         "email": "testuser@email.com",
-        "password": "testuser"
+        "password": "testuser",
+        "name": "testuser"
       }
   auth: inherit
 

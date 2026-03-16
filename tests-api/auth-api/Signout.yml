@@ -1,14 +1,11 @@
 info:
   name: Signout
   type: http
-  seq: 3
+  seq: 4
 
 http:
   method: POST
   url: "{{base-url}}/api/auth/sign-out"
-  headers:
-    - name: Origin
-      value: https://todo.saphynet.io
   auth: inherit
 
 settings:

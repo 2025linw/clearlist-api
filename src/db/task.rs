@@ -10,38 +10,30 @@ use crate::{
 
 pub async fn query_tasks(
     conn: &PgPool,
+    user_id: String,
     limit: i64,
     offset: i64,
     start_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
     deadline_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
 ) -> Result<Vec<Task>> {
-    let mut builder = QueryBuilder::new("SELECT * FROM app.tasks");
-
-    let mut has_where = false;
+    let mut builder = QueryBuilder::new("SELECT * FROM app.tasks WHERE created_by = ");
+    builder.push_bind(&user_id);
 
     if let Some(start) = start_filter {
+        // TODO: update this to match with start_date or start_at
         for (cmp, date) in start {
-            if !has_where {
-                builder.push(" WHERE ");
+            builder.push(" AND ");
 
-                has_where = true;
-            } else {
-                builder.push(" AND ");
-            }
-
-            builder.push(format!("start_date {} ", cmp));
+            builder.push(format!("(start_date {} ", cmp));
             builder.push_bind(date);
+            builder.push(format!(") OR (start_at {} ", cmp));
+            builder.push_bind(date);
+            builder.push(")");
         }
     }
     if let Some(deadline) = deadline_filter {
         for (cmp, date) in deadline {
-            if !has_where {
-                builder.push(" WHERE ");
-
-                has_where = true;
-            } else {
-                builder.push(" AND ");
-            }
+            builder.push(" AND ");
 
             builder.push(format!("deadline {} ", cmp));
             builder.push_bind(date);
@@ -57,27 +49,28 @@ pub async fn query_tasks(
 
     let mut tasks = query.fetch_all(conn).await?;
 
-    // TODO: do this in main query?
+    // TODO: do this in one query then map?
     for task in tasks.iter_mut() {
-        task.tags = Some(tag::query_task_tags(conn, task.id).await?);
+        task.tags = Some(tag::query_task_tags(conn, task.id, user_id.clone()).await?);
     }
 
     Ok(tasks)
 }
 
-pub async fn insert_task(conn: &PgPool, task: Task) -> Result<Uuid> {
+pub async fn insert_task(conn: &PgPool, user_id: String, task: Task) -> Result<Uuid> {
     let mut transaction = conn.begin().await?;
 
     let task_id = sqlx::query_scalar(
-        "INSERT INTO app.tasks (title, notes, start_date, start_time, deadline)
-        VALUES ($1, $2, $3, $4, $5)
+        "INSERT INTO app.tasks (title, notes, start_date, start_at, deadline, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id",
     )
     .bind(task.title)
     .bind(task.notes)
     .bind(task.start_date)
-    .bind(task.start_time)
+    .bind(task.start_at)
     .bind(task.deadline)
+    .bind(&user_id)
     .fetch_one(&mut *transaction)
     .await?;
 
@@ -95,40 +88,47 @@ pub async fn insert_task(conn: &PgPool, task: Task) -> Result<Uuid> {
     Ok(task_id)
 }
 
-pub async fn select_task(conn: &PgPool, task_id: Uuid) -> Result<Option<Task>> {
+pub async fn select_task(conn: &PgPool, task_id: Uuid, user_id: String) -> Result<Option<Task>> {
     let task_opt = query_as_wrapper::<Task>(
-        "SELECT id, title, notes, start_date, start_time, deadline
+        "SELECT *
         FROM app.tasks
-        WHERE id = $1",
+        WHERE id = $1 AND created_by = $2",
     )
     .bind(task_id)
+    .bind(&user_id)
     .fetch_optional(conn)
     .await?;
 
     match task_opt {
         None => Ok(None),
         Some(mut task) => {
-            task.tags = Some(tag::query_task_tags(conn, task_id).await?);
+            task.tags = Some(tag::query_task_tags(conn, task_id, user_id).await?);
 
             Ok(Some(task))
         }
     }
 }
 
-pub async fn update_task(conn: &PgPool, task_id: Uuid, task: Task) -> Result<Option<Task>> {
+pub async fn update_task(
+    conn: &PgPool,
+    task_id: Uuid,
+    user_id: String,
+    task: Task,
+) -> Result<Option<Task>> {
     let mut transaction = conn.begin().await?;
 
     if sqlx::query(
         "UPDATE app.tasks SET
-        (title, notes, start_date, start_time, deadline) =
-        ($2, $3, $4, $5, $6)
-        WHERE id = $1",
+        (updated_at, title, notes, start_date, start_at, deadline) =
+        (CURRENT_TIMESTAMP, $3, $4, $5, $6, $7)
+        WHERE id = $1 AND created_by = $2",
     )
     .bind(task_id)
+    .bind(&user_id)
     .bind(task.title)
     .bind(task.notes)
     .bind(task.start_date)
-    .bind(task.start_time)
+    .bind(task.start_at)
     .bind(task.deadline)
     .execute(&mut *transaction)
     .await?
@@ -149,14 +149,15 @@ pub async fn update_task(conn: &PgPool, task_id: Uuid, task: Task) -> Result<Opt
 
     transaction.commit().await?;
 
-    select_task(conn, task_id).await
+    select_task(conn, task_id, user_id).await
 }
 
-pub async fn delete_task(conn: &PgPool, task_id: Uuid) -> Result<Option<()>> {
+pub async fn delete_task(conn: &PgPool, task_id: Uuid, user_id: String) -> Result<Option<()>> {
     let mut transaction = conn.begin().await?;
 
-    if sqlx::query("DELETE FROM app.tasks WHERE id = $1")
+    if sqlx::query("DELETE FROM app.tasks WHERE id = $1 AND created_by = $2")
         .bind(task_id)
+        .bind(user_id)
         .execute(&mut *transaction)
         .await?
         .rows_affected()
@@ -179,17 +180,21 @@ pub mod tag {
         db::{Result, query_as_wrapper},
     };
 
-    pub async fn query_task_tags<'e, E>(conn: E, task_id: Uuid) -> Result<Vec<Tag>>
+    // NOTE: all these functions requires/expect that the task with task_id exists
+
+    pub async fn query_task_tags<'e, E>(conn: E, task_id: Uuid, user_id: String) -> Result<Vec<Tag>>
     where
         E: Executor<'e, Database = Postgres>,
     {
         Ok(query_as_wrapper::<Tag>(
-            "SELECT tg.id, tg.label, tg.category
+            "SELECT *
             FROM app.tags tg
             JOIN app.task_tags tt ON tg.id = tt.tag_id
-            WHERE tt.task_id = $1",
+            JOIN app.tasks t ON tt.task_id = t.id
+            WHERE tt.task_id = $1 AND t.created_by = $2",
         )
         .bind(task_id)
+        .bind(user_id)
         .fetch_all(conn)
         .await?)
     }
@@ -205,12 +210,15 @@ pub mod tag {
         let mut builder =
             QueryBuilder::new("WITH deleted AS (DELETE FROM app.task_tags WHERE task_id = ");
         builder.push_bind(task_id);
+        builder.push(" RETURNING task_id) INSERT INTO app.task_tags (task_id, tag_id) SELECT COALESCE(deleted.task_id, ");
+        builder.push_bind(task_id);
+        builder.push("), unnest_tag FROM deleted RIGHT JOIN UNNEST(");
+        builder.push_bind(&tag_ids);
+        builder.push(") AS unnest_tag ON TRUE");
 
-        builder.push(" RETURNING *), deleted_task_id AS (SELECT DISTINCT task_id FROM deleted) INSERT INTO app.task_tags (task_id, tag_id) SELECT * FROM deleted_task_id CROSS JOIN UNNEST(");
-        builder.push_bind(tag_ids);
-        builder.push(")");
-
-        builder.build().execute(conn).await?;
+        if builder.build().execute(conn).await?.rows_affected() != tag_ids.len() as u64 {
+            return Ok(None);
+        }
 
         Ok(Some(()))
     }

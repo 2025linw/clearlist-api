@@ -1,3 +1,4 @@
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -9,15 +10,27 @@ use super::{
 #[derive(Debug, Deserialize, Serialize, FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
-    #[serde(default)]
+    #[serde(skip_deserializing)]
     pub id: uuid::Uuid,
 
     #[serde(default)]
     pub title: String,
     pub notes: Option<String>,
+    // TODO: when performing schema validation, check that only one of start_date OR start_at exists.
     pub start_date: Option<chrono::NaiveDate>,
-    pub start_time: Option<chrono::NaiveTime>,
+    pub start_at: Option<chrono::DateTime<Utc>>,
     pub deadline: Option<chrono::NaiveDate>,
+
+    #[serde(skip_deserializing)]
+    pub deleted_at: Option<chrono::DateTime<Utc>>,
+
+    #[serde(skip_deserializing)]
+    pub created_at: chrono::DateTime<Utc>,
+    #[serde(skip_deserializing)]
+    pub updated_at: chrono::DateTime<Utc>,
+
+    #[serde(skip_deserializing)]
+    pub created_by: String,
 
     #[serde(default)]
     #[sqlx(skip)]

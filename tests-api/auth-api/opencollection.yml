@@ -2,6 +2,22 @@ opencollection: 1.0.0
 
 info:
   name: auth-api
+config:
+  proxy:
+    inherit: true
+    config:
+      protocol: http
+      hostname: ""
+      port: ""
+      auth:
+        username: ""
+        password: ""
+      bypassProxy: ""
+
+request:
+  headers:
+    - name: Origin
+      value: "{{origin}}"
 bundled: false
 extensions:
   bruno:

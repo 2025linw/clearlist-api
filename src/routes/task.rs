@@ -23,7 +23,7 @@ use crate::{
 const NOT_FOUND: &str = "task not found";
 
 pub async fn query_handler(
-    CurrentSession(_user, _): CurrentSession,
+    CurrentSession(user, _): CurrentSession,
     State(data): State<AppState>,
     Query(TaskQuery {
         pagination: Pagination { page, limit },
@@ -90,7 +90,7 @@ pub async fn query_handler(
         None
     };
 
-    let tasks: Vec<Task> = query_tasks(conn, limit, offset, start, deadline).await?;
+    let tasks: Vec<Task> = query_tasks(conn, user.id, limit, offset, start, deadline).await?;
 
     Ok(Response::with_data(
         StatusCode::OK,
@@ -103,13 +103,13 @@ pub async fn query_handler(
 }
 
 pub async fn create_handler(
-    CurrentSession(_user, _): CurrentSession,
+    CurrentSession(user, _): CurrentSession,
     State(data): State<AppState>,
     Json(body): Json<Task>,
 ) -> Result<Response, ErrorResponse> {
     let conn = data.db.get_pool_ref();
 
-    let task_id = insert_task(conn, body).await?;
+    let task_id = insert_task(conn, user.id, body).await?;
 
     Ok(Response::with_data(
         StatusCode::CREATED,
@@ -119,13 +119,13 @@ pub async fn create_handler(
 }
 
 pub async fn retrieve_handler(
-    CurrentSession(_user, _): CurrentSession,
+    CurrentSession(user, _): CurrentSession,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
 ) -> Result<Response, ErrorResponse> {
     let conn = data.db.get_pool_ref();
 
-    if let Some(task) = select_task(conn, task_id).await? {
+    if let Some(task) = select_task(conn, task_id, user.id).await? {
         Ok(Response::with_data(StatusCode::OK, OK, json!(task)))
     } else {
         Err(ErrorResponse::with_msg(
@@ -137,14 +137,14 @@ pub async fn retrieve_handler(
 }
 
 pub async fn update_handler(
-    CurrentSession(_user, _): CurrentSession,
+    CurrentSession(user, _): CurrentSession,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
     Json(body): Json<Task>,
 ) -> Result<Response, ErrorResponse> {
     let conn = data.db.get_pool_ref();
 
-    if let Some(task) = update_task(conn, task_id, body).await? {
+    if let Some(task) = update_task(conn, task_id, user.id, body).await? {
         Ok(Response::with_data(StatusCode::OK, SUCCESS, json!(task)))
     } else {
         Err(ErrorResponse::with_msg(
@@ -156,14 +156,14 @@ pub async fn update_handler(
 }
 
 pub async fn delete_handler(
-    CurrentSession(_user, _): CurrentSession,
+    CurrentSession(user, _): CurrentSession,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
 ) -> Result<Response, ErrorResponse> {
     let conn = data.db.get_pool_ref();
 
-    if let Some(()) = delete_task(conn, task_id).await? {
-        Ok(Response::code(StatusCode::NO_CONTENT))
+    if let Some(()) = delete_task(conn, task_id, user.id).await? {
+        Ok(Response::new(StatusCode::NO_CONTENT))
     } else {
         Err(ErrorResponse::with_msg(
             StatusCode::NOT_FOUND,
@@ -185,19 +185,24 @@ pub mod tag {
     use crate::{
         AppState,
         com::model::query::PathTaskTag,
-        db::task::tag,
+        db::{is_task_exists, task::tag},
         response::{ErrorResponse, OK, Response},
+        routes::task::NOT_FOUND,
         util::CurrentSession,
     };
 
     pub async fn query_handler(
-        CurrentSession(_user, _): CurrentSession,
+        CurrentSession(user, _): CurrentSession,
         State(data): State<AppState>,
         Path(task_id): Path<Uuid>,
     ) -> Result<Response, ErrorResponse> {
         let conn = data.db.get_pool_ref();
 
-        let tags = tag::query_task_tags(conn, task_id).await?;
+        if !is_task_exists(conn, task_id, user.id.clone()).await? {
+            return Err(ErrorResponse::new(StatusCode::NOT_FOUND).msg(NOT_FOUND));
+        }
+
+        let tags = tag::query_task_tags(conn, task_id, user.id).await?;
 
         Ok(Response::with_data(
             StatusCode::OK,
@@ -210,45 +215,57 @@ pub mod tag {
     }
 
     pub async fn create_handler(
-        CurrentSession(_user, _): CurrentSession,
+        CurrentSession(user, _): CurrentSession,
         State(data): State<AppState>,
         Path(PathTaskTag { task_id, tag_id }): Path<PathTaskTag>,
     ) -> Result<Response, ErrorResponse> {
         let conn = data.db.get_pool_ref();
 
+        if !is_task_exists(conn, task_id, user.id.clone()).await? {
+            return Err(ErrorResponse::new(StatusCode::NOT_FOUND).msg(NOT_FOUND));
+        }
+
         if let Some(()) = tag::add_task_tag(conn, task_id, tag_id).await? {
-            Ok(Response::code(StatusCode::NO_CONTENT))
+            Ok(Response::new(StatusCode::NO_CONTENT))
         } else {
-            Ok(Response::code(StatusCode::NOT_FOUND))
+            Ok(Response::new(StatusCode::NOT_FOUND))
         }
     }
 
     pub async fn update_handler(
-        CurrentSession(_user, _): CurrentSession,
+        CurrentSession(user, _): CurrentSession,
         State(data): State<AppState>,
         Path(task_id): Path<Uuid>,
         Json(tag_ids): Json<Vec<Uuid>>,
     ) -> Result<Response, ErrorResponse> {
         let conn = data.db.get_pool_ref();
 
+        if !is_task_exists(conn, task_id, user.id.clone()).await? {
+            return Err(ErrorResponse::new(StatusCode::NOT_FOUND).msg(NOT_FOUND));
+        }
+
         if let Some(()) = tag::update_task_tags(conn, task_id, tag_ids).await? {
-            Ok(Response::code(StatusCode::NO_CONTENT))
+            Ok(Response::new(StatusCode::NO_CONTENT))
         } else {
-            Ok(Response::code(StatusCode::NOT_FOUND))
+            Ok(Response::new(StatusCode::NOT_FOUND).msg("one or more tags do not exist"))
         }
     }
 
     pub async fn delete_handler(
-        CurrentSession(_user, _): CurrentSession,
+        CurrentSession(user, _): CurrentSession,
         State(data): State<AppState>,
         Path(PathTaskTag { task_id, tag_id }): Path<PathTaskTag>,
     ) -> Result<Response, ErrorResponse> {
         let conn = data.db.get_pool_ref();
 
+        if !is_task_exists(conn, task_id, user.id.clone()).await? {
+            return Err(ErrorResponse::new(StatusCode::NOT_FOUND).msg(NOT_FOUND));
+        }
+
         if let Some(()) = tag::delete_task_tag(conn, task_id, tag_id).await? {
-            Ok(Response::code(StatusCode::NO_CONTENT))
+            Ok(Response::new(StatusCode::NO_CONTENT))
         } else {
-            Ok(Response::code(StatusCode::NOT_FOUND))
+            Ok(Response::new(StatusCode::NOT_FOUND))
         }
     }
 }
