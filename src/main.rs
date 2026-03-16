@@ -20,33 +20,39 @@ async fn main() {
         .with_target(false)
         .init();
 
-    debug!("Getting environment variables");
-    let srv_port = match env::var("SRV_PORT") {
-        Ok(port) => port,
-        Err(_) => {
-            eprintln!("SRV_PORT not found in environment variables");
+    // Verify all environment variables exist
+    let mut missing_env = false;
+    if env::var("SRV_PORT").is_err() {
+        eprintln!("SRV_PORT not found in environment variables");
+        missing_env = true;
+    }
+    if env::var("DATABASE_URL").is_err() {
+        eprintln!("DATABASE_URL not found in environment variables");
+        missing_env = true;
+    }
+    // if env::var("COOKIE_KEY").is_err() {
+    //     eprintln!("COOKIE_KEY not found in environment variables");
+    //     missing_env = true;
+    // }
+    if missing_env {
+        // If missing env vars, exit process.
+        std::process::exit(1);
+    }
 
-            std::process::exit(1)
-        }
-    };
+    debug!("Getting environment variables");
+    let srv_port = env::var("SRV_PORT").unwrap();
 
     // Setup Database Connection Pool
     debug!("Setting up database connection");
-    let db_conn = match DatabaseConn::connect_env().await {
-        Ok(conn) => {
-            if !conn.is_active().await {
-                eprintln!("database connection is not active");
-
-                std::process::exit(1)
-            }
-
-            conn
-        }
-        Err(e) => {
-            eprintln!("unable to connect to database: '{}'", e);
+    let db_conn = {
+        let conn = DatabaseConn::connect_env().await.unwrap();
+        if !conn.is_active().await {
+            eprintln!("database connection is not active");
 
             std::process::exit(1)
         }
+
+        conn
     };
 
     // Setup app state
