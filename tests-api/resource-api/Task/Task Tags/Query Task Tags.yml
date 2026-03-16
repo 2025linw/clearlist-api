@@ -5,7 +5,7 @@ info:
 
 http:
   method: GET
-  url: "{{base-url}}/api/tasks/{{task-id}}/tags"
+  url: "{{base-url}}/api/tasks/00000000-0000-0000-0000-000000000001/tags"
   auth: inherit
 
 settings:
