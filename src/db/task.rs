@@ -39,7 +39,6 @@ pub async fn query_tasks(
             builder.push_bind(date);
         }
     }
-
     builder.push(" LIMIT ");
     builder.push_bind(limit);
     builder.push(" OFFSET ");
