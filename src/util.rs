@@ -59,15 +59,19 @@ impl FromRequestParts<AppState> for CurrentSession {
             .unwrap();
 
         let conn = state.db.get_pool_ref();
-        let session: Session =
-            sqlx::query_as::<Postgres, Session>("SELECT * FROM auth.session WHERE token = $1")
-                .bind(session_id)
-                .fetch_one(conn)
-                .await
-                .unwrap();
+        let session: Session = match sqlx::query_as::<Postgres, Session>(
+            "SELECT * FROM auth.session WHERE token = $1",
+        )
+        .bind(session_id)
+        .fetch_one(conn)
+        .await
+        {
+            Err(_) => return Err((StatusCode::UNAUTHORIZED, "session has expired")),
+            Ok(session) => session,
+        };
 
         if session.expires_at < Utc::now() {
-            return Err((StatusCode::UNAUTHORIZED, "not authorized"));
+            return Err((StatusCode::UNAUTHORIZED, "session has expired"));
         }
 
         let user: User = sqlx::query_as::<Postgres, User>("SELECT * FROM auth.user WHERE id = $1")
