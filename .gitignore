@@ -4,5 +4,5 @@
 # Compilation Targets
 target
 
-# Private Keys
-**/*.env
+# Environments
+**/.env
