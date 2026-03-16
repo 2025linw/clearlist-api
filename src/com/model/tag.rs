@@ -22,7 +22,7 @@ pub struct Tag {
     pub updated_at: chrono::DateTime<Utc>,
 
     #[serde(skip_deserializing)]
-    pub created_by: String,
+    pub created_by: uuid::Uuid,
 }
 
 #[derive(Debug, Deserialize)]

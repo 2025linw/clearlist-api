@@ -4,6 +4,7 @@ use axum::{extract::FromRequestParts, http::StatusCode};
 use axum_extra::extract::CookieJar;
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, Postgres};
+use uuid::Uuid;
 
 use crate::AppState;
 
@@ -13,7 +14,7 @@ static COOKIE_KEY: LazyLock<String> =
 #[derive(Debug, FromRow)]
 #[sqlx(rename_all = "camelCase")]
 pub struct User {
-    pub id: String,
+    pub id: Uuid,
     pub name: String,
     pub email: String,
     pub email_verified: bool,
@@ -25,9 +26,9 @@ pub struct User {
 #[derive(Debug, FromRow)]
 #[sqlx(rename_all = "camelCase")]
 pub struct Session {
-    pub id: String,
+    pub id: Uuid,
     pub token: String,
-    pub user_id: String,
+    pub user_id: Uuid,
     pub user_agent: Option<String>,
     pub ip_address: Option<String>,
     pub created_at: DateTime<Utc>,

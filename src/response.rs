@@ -73,6 +73,10 @@ impl From<DBError> for Response {
 
 impl axum::response::IntoResponse for Response {
     fn into_response(self) -> axum::response::Response {
-        (self.code, Json::from(self.json_map)).into_response()
+        if self.json_map.is_empty() {
+            (self.code).into_response()
+        } else {
+            (self.code, Json::from(self.json_map)).into_response()
+        }
     }
 }

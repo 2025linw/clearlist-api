@@ -12,7 +12,7 @@ CREATE TABLE app.tags (
     created_at timestamp with time zone NOT NULL default CURRENT_TIMESTAMP,
     updated_at timestamp with time zone NOT NULL default CURRENT_TIMESTAMP,
 
-    created_by text NOT NULL,
+    created_by uuid NOT NULL,
 
     FOREIGN KEY (created_by) REFERENCES auth.user (id)
 );
@@ -33,7 +33,7 @@ CREATE TABLE app.tasks (
     created_at timestamp with time zone NOT NULL default CURRENT_TIMESTAMP,
     updated_at timestamp with time zone NOT NULL default CURRENT_TIMESTAMP,
 
-    created_by text NOT NULL,
+    created_by uuid NOT NULL,
 
     FOREIGN KEY (created_by) REFERENCES auth.user (id)
 );

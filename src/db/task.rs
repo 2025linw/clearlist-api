@@ -10,7 +10,7 @@ use crate::{
 
 pub async fn query_tasks(
     conn: &PgPool,
-    user_id: String,
+    user_id: Uuid,
     limit: i64,
     offset: i64,
     start_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
@@ -57,7 +57,7 @@ pub async fn query_tasks(
     Ok(tasks)
 }
 
-pub async fn insert_task(conn: &PgPool, user_id: String, task: Task) -> Result<Uuid> {
+pub async fn insert_task(conn: &PgPool, user_id: Uuid, task: Task) -> Result<Uuid> {
     let mut transaction = conn.begin().await?;
 
     let task_id = sqlx::query_scalar(
@@ -88,7 +88,7 @@ pub async fn insert_task(conn: &PgPool, user_id: String, task: Task) -> Result<U
     Ok(task_id)
 }
 
-pub async fn select_task(conn: &PgPool, task_id: Uuid, user_id: String) -> Result<Option<Task>> {
+pub async fn select_task(conn: &PgPool, task_id: Uuid, user_id: Uuid) -> Result<Option<Task>> {
     let task_opt = query_as_wrapper::<Task>(
         "SELECT *
         FROM app.tasks
@@ -112,7 +112,7 @@ pub async fn select_task(conn: &PgPool, task_id: Uuid, user_id: String) -> Resul
 pub async fn update_task(
     conn: &PgPool,
     task_id: Uuid,
-    user_id: String,
+    user_id: Uuid,
     task: Task,
 ) -> Result<Option<Task>> {
     let mut transaction = conn.begin().await?;
@@ -152,7 +152,7 @@ pub async fn update_task(
     select_task(conn, task_id, user_id).await
 }
 
-pub async fn delete_task(conn: &PgPool, task_id: Uuid, user_id: String) -> Result<Option<()>> {
+pub async fn delete_task(conn: &PgPool, task_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
     let mut transaction = conn.begin().await?;
 
     if sqlx::query("DELETE FROM app.tasks WHERE id = $1 AND created_by = $2")
@@ -182,7 +182,7 @@ pub mod tag {
 
     // NOTE: all these functions requires/expect that the task with task_id exists
 
-    pub async fn query_task_tags<'e, E>(conn: E, task_id: Uuid, user_id: String) -> Result<Vec<Tag>>
+    pub async fn query_task_tags<'e, E>(conn: E, task_id: Uuid, user_id: Uuid) -> Result<Vec<Tag>>
     where
         E: Executor<'e, Database = Postgres>,
     {
