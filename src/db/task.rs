@@ -13,12 +13,17 @@ pub async fn query_tasks(
     user_id: Uuid,
     limit: i64,
     offset: i64,
+    deleted: bool,
     start_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
     deadline_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
 ) -> Result<Vec<Task>> {
     let mut builder = QueryBuilder::new("SELECT * FROM app.tasks WHERE created_by = ");
     builder.push_bind(&user_id);
-
+    if deleted {
+        builder.push(" AND deleted_at NOT NULL");
+    } else {
+        builder.push(" AND deleted_at IS NULL");
+    }
     if let Some(start) = start_filter {
         // TODO: update this to match with start_date or start_at
         for (cmp, date) in start {
@@ -39,10 +44,8 @@ pub async fn query_tasks(
             builder.push_bind(date);
         }
     }
-    builder.push(" LIMIT ");
-    builder.push_bind(limit);
-    builder.push(" OFFSET ");
-    builder.push_bind(offset);
+    builder.push(format!(" LIMIT {}", limit));
+    builder.push(format!(" OFFSET {}", offset));
 
     let query = builder.build_query_as::<Task>();
 
@@ -91,7 +94,7 @@ pub async fn select_task(conn: &PgPool, task_id: Uuid, user_id: Uuid) -> Result<
     let task_opt = query_as_wrapper::<Task>(
         "SELECT *
         FROM app.tasks
-        WHERE id = $1 AND created_by = $2",
+        WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
     )
     .bind(task_id)
     .bind(&user_id)
@@ -120,7 +123,7 @@ pub async fn update_task(
         "UPDATE app.tasks SET
         (updated_at, title, notes, start_date, start_at, deadline) =
         (CURRENT_TIMESTAMP, $3, $4, $5, $6, $7)
-        WHERE id = $1 AND created_by = $2",
+        WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
     )
     .bind(task_id)
     .bind(&user_id)
@@ -151,7 +154,31 @@ pub async fn update_task(
     select_task(conn, task_id, user_id).await
 }
 
-pub async fn delete_task(conn: &PgPool, task_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
+pub async fn delete_task_soft(conn: &PgPool, task_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
+    let mut transaction = conn.begin().await?;
+
+    if sqlx::query(
+        "UPDATE app.tasks SET
+        (updated_at, deleted_at) =
+        (CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
+    )
+    .bind(task_id)
+    .bind(user_id)
+    .execute(&mut *transaction)
+    .await?
+    .rows_affected()
+        == 0
+    {
+        return Ok(None);
+    }
+
+    transaction.commit().await?;
+
+    Ok(Some(()))
+}
+
+pub async fn delete_task_hard(conn: &PgPool, task_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
     let mut transaction = conn.begin().await?;
 
     if sqlx::query("DELETE FROM app.tasks WHERE id = $1 AND created_by = $2")
@@ -189,8 +216,8 @@ pub mod tag {
             "SELECT *
             FROM app.tags tg
             JOIN app.task_tags tt ON tg.id = tt.tag_id
-            JOIN app.tasks t ON tt.task_id = t.id
-            WHERE tt.task_id = $1 AND t.created_by = $2",
+            JOIN app.tasks t ON tt.task_id = t.id AND t.deleted_at IS NULL
+            WHERE tt.task_id = $1 AND t.created_by = $2 AND tg.deleted_at IS NULL",
         )
         .bind(task_id)
         .bind(user_id)
@@ -206,6 +233,7 @@ pub mod tag {
     where
         E: Executor<'e, Database = Postgres>,
     {
+        // TODO: check if any of the tag_ids are deleted
         let mut builder =
             QueryBuilder::new("WITH deleted AS (DELETE FROM app.task_tags WHERE task_id = ");
         builder.push_bind(task_id);
@@ -226,6 +254,7 @@ pub mod tag {
     where
         E: Executor<'e, Database = Postgres>,
     {
+        // TODO: check if tag_id is deleted
         if sqlx::query("INSERT INTO app.task_tags (task_id, tag_id) VALUES ($1, $2)")
             .bind(task_id)
             .bind(tag_id)

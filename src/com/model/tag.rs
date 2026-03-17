@@ -29,4 +29,6 @@ pub struct Tag {
 pub struct TagQuery {
     #[serde(flatten)]
     pub pagination: Pagination,
+
+    pub deleted: bool,
 }

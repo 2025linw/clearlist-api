@@ -14,7 +14,7 @@ use crate::{
         db::SQLCmp,
         query::{DateFilter, Pagination},
     },
-    db::task::{delete_task, insert_task, query_tasks, select_task, update_task},
+    db::task::{delete_task_soft, insert_task, query_tasks, select_task, update_task},
     error::Error,
     response::{ERR, ErrorResponse, OK, Response, SUCCESS},
     util::CurrentSession,
@@ -29,6 +29,7 @@ pub async fn query_handler(
         pagination: Pagination { page, limit },
         start_date,
         deadline,
+        deleted,
     }): Query<TaskQuery>,
 ) -> Result<Response, ErrorResponse> {
     let page = i64::try_from(page).map_err(|e| Error::InvalidRequest(e.to_string()))?;
@@ -90,7 +91,8 @@ pub async fn query_handler(
         None
     };
 
-    let tasks: Vec<Task> = query_tasks(conn, user.id, limit, offset, start, deadline).await?;
+    let tasks: Vec<Task> =
+        query_tasks(conn, user.id, limit, offset, deleted, start, deadline).await?;
 
     Ok(Response::with_data(
         StatusCode::OK,
@@ -162,7 +164,7 @@ pub async fn delete_handler(
 ) -> Result<Response, ErrorResponse> {
     let conn = data.db.get_pool_ref();
 
-    if let Some(()) = delete_task(conn, task_id, user.id).await? {
+    if let Some(()) = delete_task_soft(conn, task_id, user.id).await? {
         Ok(Response::new(StatusCode::NO_CONTENT))
     } else {
         Err(ErrorResponse::with_msg(

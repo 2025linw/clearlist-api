@@ -44,4 +44,7 @@ pub struct TaskQuery {
 
     pub start_date: Option<DateFilter>,
     pub deadline: Option<DateFilter>,
+
+    #[serde(default)]
+    pub deleted: bool,
 }

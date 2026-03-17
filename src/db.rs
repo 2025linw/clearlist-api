@@ -82,12 +82,14 @@ where
 }
 
 pub async fn is_task_exists(conn: &PgPool, task_id: Uuid, user_id: Uuid) -> Result<bool> {
-    if sqlx::query("SELECT * FROM app.tasks WHERE id = $1 AND created_by = $2")
-        .bind(task_id)
-        .bind(user_id)
-        .execute(conn)
-        .await?
-        .rows_affected()
+    if sqlx::query(
+        "SELECT * FROM app.tasks WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
+    )
+    .bind(task_id)
+    .bind(user_id)
+    .execute(conn)
+    .await?
+    .rows_affected()
         == 0
     {
         Ok(false)

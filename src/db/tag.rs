@@ -1,22 +1,32 @@
-use sqlx::PgPool;
+use sqlx::{PgPool, QueryBuilder};
 use uuid::Uuid;
 
 use super::Result;
 use crate::{com::model::Tag, db::query_as_wrapper};
 
-pub async fn query_tags(conn: &PgPool, user_id: Uuid, limit: i64, offset: i64) -> Result<Vec<Tag>> {
+pub async fn query_tags(
+    conn: &PgPool,
+    user_id: Uuid,
+    limit: i64,
+    offset: i64,
+    deleted: bool,
+) -> Result<Vec<Tag>> {
     // TODO: later allow filtering of tags by name search or category
-    Ok(query_as_wrapper::<Tag>(
-        "SELECT *
-            FROM app.tags
-            WHERE created_by = $1
-            LIMIT $2 OFFSET $3",
-    )
-    .bind(user_id)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(conn)
-    .await?)
+    let mut builder = QueryBuilder::new("SELECT * FROM app.tags WHERE created_by = ");
+    builder.push_bind(user_id);
+    if deleted {
+        builder.push(" AND deleted_at is NOT NULL");
+    } else {
+        builder.push(" AND deleted_at is IS NULL");
+    }
+    builder.push(format!(" LIMIT {}", limit));
+    builder.push(format!(" OFFSET {}", offset));
+
+    let query = builder.build_query_as::<Tag>();
+
+    let tags = query.fetch_all(conn).await?;
+
+    Ok(tags)
 }
 
 pub async fn insert_tag(conn: &PgPool, user_id: Uuid, tag: Tag) -> Result<Uuid> {
@@ -42,7 +52,7 @@ pub async fn select_tag(conn: &PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Op
     let tag_opt = query_as_wrapper::<Tag>(
         "SELECT *
         FROM app.tags
-        WHERE id = $1 AND created_by = $2",
+        WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
     )
     .bind(tag_id)
     .bind(user_id)
@@ -67,7 +77,7 @@ pub async fn update_tag(
         "UPDATE app.tags SET
         (updated_at, label, category) =
         (CURRENT_TIMESTAMP, $3, $4)
-        WHERE id = $1 AND created_by = $2",
+        WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
     )
     .bind(tag_id)
     .bind(&user_id)
@@ -86,7 +96,31 @@ pub async fn update_tag(
     select_tag(conn, tag_id, user_id).await
 }
 
-pub async fn delete_tag(conn: &PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
+pub async fn delete_tag_soft(conn: &PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
+    let mut transaction = conn.begin().await?;
+
+    if sqlx::query(
+        "UPDATE app.tags SET
+        (updated_at, deleted_at) =
+        (CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
+    )
+    .bind(tag_id)
+    .bind(user_id)
+    .execute(&mut *transaction)
+    .await?
+    .rows_affected()
+        == 0
+    {
+        return Ok(None);
+    }
+
+    transaction.commit().await?;
+
+    Ok(Some(()))
+}
+
+pub async fn delete_tag_hard(conn: &PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
     let mut transaction = conn.begin().await?;
 
     if sqlx::query("DELETE FROM app.tags WHERE id = $1 AND created_by = $2")

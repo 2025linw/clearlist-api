@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     com::model::{Tag, TagQuery, query::Pagination},
-    db::tag::{delete_tag, insert_tag, query_tags, select_tag, update_tag},
+    db::tag::{delete_tag_soft, insert_tag, query_tags, select_tag, update_tag},
     error::Error,
     response::{ERR, ErrorResponse, OK, Response, SUCCESS},
     util::CurrentSession,
@@ -22,6 +22,7 @@ pub async fn query_handler(
     State(data): State<AppState>,
     Query(TagQuery {
         pagination: Pagination { page, limit },
+        deleted,
     }): Query<TagQuery>,
 ) -> Result<Response, ErrorResponse> {
     let page = i64::try_from(page).map_err(|e| Error::InvalidRequest(e.to_string()))?;
@@ -30,7 +31,7 @@ pub async fn query_handler(
 
     let conn = data.db.get_pool_ref();
 
-    let tags: Vec<Tag> = query_tags(conn, user.id, limit, offset).await?;
+    let tags: Vec<Tag> = query_tags(conn, user.id, limit, offset, deleted).await?;
 
     Ok(Response::with_data(
         StatusCode::OK,
@@ -94,7 +95,7 @@ pub async fn delete_handler(
 ) -> Result<Response, ErrorResponse> {
     let conn = data.db.get_pool_ref();
 
-    if let Some(()) = delete_tag(conn, tag_id, user.id).await? {
+    if let Some(()) = delete_tag_soft(conn, tag_id, user.id).await? {
         Ok(Response::new(StatusCode::NO_CONTENT))
     } else {
         Err(Response::with_msg(StatusCode::NOT_FOUND, ERR, NOT_FOUND))
