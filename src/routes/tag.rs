@@ -33,14 +33,10 @@ pub async fn query_handler(
 
     let tags: Vec<Tag> = query_tags(conn, user.id, limit, offset, deleted).await?;
 
-    Ok(Response::with_data(
-        StatusCode::OK,
-        OK,
-        json!({
-            "count": tags.len(),
-            "tags": tags,
-        }),
-    ))
+    Ok(Response::new(StatusCode::OK).status(OK).data(json!({
+        "count": tags.len(),
+        "tags": tags,
+    })))
 }
 
 pub async fn create_handler(
@@ -52,11 +48,9 @@ pub async fn create_handler(
 
     let tag_id = insert_tag(conn, user.id, body).await?;
 
-    Ok(Response::with_data(
-        StatusCode::CREATED,
-        SUCCESS,
-        json!({"tagId": tag_id}),
-    ))
+    Ok(Response::new(StatusCode::CREATED)
+        .status(SUCCESS)
+        .data(json!({"tagId": tag_id})))
 }
 
 pub async fn retrieve_handler(
@@ -67,9 +61,11 @@ pub async fn retrieve_handler(
     let conn = data.db.get_pool_ref();
 
     if let Some(tag) = select_tag(conn, tag_id, user.id).await? {
-        Ok(Response::with_data(StatusCode::OK, OK, json!(tag)))
+        Ok(Response::new(StatusCode::OK).status(OK).data(json!(tag)))
     } else {
-        Err(Response::with_msg(StatusCode::NOT_FOUND, ERR, NOT_FOUND))
+        Err(Response::new(StatusCode::NOT_FOUND)
+            .status(ERR)
+            .msg(NOT_FOUND))
     }
 }
 
@@ -82,9 +78,13 @@ pub async fn update_handler(
     let conn = data.db.get_pool_ref();
 
     if let Some(tag) = update_tag(conn, tag_id, user.id, body).await? {
-        Ok(Response::with_data(StatusCode::OK, SUCCESS, json!(tag)))
+        Ok(Response::new(StatusCode::OK)
+            .status(SUCCESS)
+            .data(json!(tag)))
     } else {
-        Err(Response::with_msg(StatusCode::NOT_FOUND, ERR, NOT_FOUND))
+        Err(Response::new(StatusCode::NOT_FOUND)
+            .status(ERR)
+            .msg(NOT_FOUND))
     }
 }
 
@@ -98,6 +98,8 @@ pub async fn delete_handler(
     if let Some(()) = delete_tag_soft(conn, tag_id, user.id).await? {
         Ok(Response::new(StatusCode::NO_CONTENT))
     } else {
-        Err(Response::with_msg(StatusCode::NOT_FOUND, ERR, NOT_FOUND))
+        Err(Response::new(StatusCode::NOT_FOUND)
+            .status(ERR)
+            .msg(NOT_FOUND))
     }
 }

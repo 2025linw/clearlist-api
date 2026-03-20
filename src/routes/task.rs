@@ -94,14 +94,10 @@ pub async fn query_handler(
     let tasks: Vec<Task> =
         query_tasks(conn, user.id, limit, offset, deleted, start, deadline).await?;
 
-    Ok(Response::with_data(
-        StatusCode::OK,
-        OK,
-        json!({
-            "count": tasks.len(),
-            "tasks": tasks,
-        }),
-    ))
+    Ok(Response::new(StatusCode::OK).status(OK).data(json!({
+        "count": tasks.len(),
+        "tasks": tasks,
+    })))
 }
 
 pub async fn create_handler(
@@ -113,11 +109,9 @@ pub async fn create_handler(
 
     let task_id = insert_task(conn, user.id, body).await?;
 
-    Ok(Response::with_data(
-        StatusCode::CREATED,
-        SUCCESS,
-        json!({"taskId": task_id}),
-    ))
+    Ok(Response::new(StatusCode::CREATED)
+        .status(SUCCESS)
+        .data(json!({"taskId": task_id})))
 }
 
 pub async fn retrieve_handler(
@@ -128,13 +122,11 @@ pub async fn retrieve_handler(
     let conn = data.db.get_pool_ref();
 
     if let Some(task) = select_task(conn, task_id, user.id).await? {
-        Ok(Response::with_data(StatusCode::OK, OK, json!(task)))
+        Ok(Response::new(StatusCode::OK).status(OK).data(json!(task)))
     } else {
-        Err(ErrorResponse::with_msg(
-            StatusCode::NOT_FOUND,
-            ERR,
-            NOT_FOUND,
-        ))
+        Err(ErrorResponse::new(StatusCode::NOT_FOUND)
+            .status(ERR)
+            .msg(NOT_FOUND))
     }
 }
 
@@ -147,13 +139,13 @@ pub async fn update_handler(
     let conn = data.db.get_pool_ref();
 
     if let Some(task) = update_task(conn, task_id, user.id, body).await? {
-        Ok(Response::with_data(StatusCode::OK, SUCCESS, json!(task)))
+        Ok(Response::new(StatusCode::OK)
+            .status(SUCCESS)
+            .data(json!(task)))
     } else {
-        Err(ErrorResponse::with_msg(
-            StatusCode::NOT_FOUND,
-            ERR,
-            NOT_FOUND,
-        ))
+        Err(ErrorResponse::new(StatusCode::NOT_FOUND)
+            .status(ERR)
+            .msg(NOT_FOUND))
     }
 }
 
@@ -167,11 +159,9 @@ pub async fn delete_handler(
     if let Some(()) = delete_task_soft(conn, task_id, user.id).await? {
         Ok(Response::new(StatusCode::NO_CONTENT))
     } else {
-        Err(ErrorResponse::with_msg(
-            StatusCode::NOT_FOUND,
-            ERR,
-            NOT_FOUND,
-        ))
+        Err(ErrorResponse::new(StatusCode::NOT_FOUND)
+            .status(ERR)
+            .msg(NOT_FOUND))
     }
 }
 
@@ -206,14 +196,10 @@ pub mod tag {
 
         let tags = tag::query_task_tags(conn, task_id, user.id).await?;
 
-        Ok(Response::with_data(
-            StatusCode::OK,
-            OK,
-            json!({
-                "count": tags.len(),
-                "tags": tags,
-            }),
-        ))
+        Ok(Response::new(StatusCode::OK).status(OK).data(json!({
+            "count": tags.len(),
+            "tags": tags,
+        })))
     }
 
     pub async fn create_handler(

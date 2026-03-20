@@ -29,7 +29,9 @@ use crate::{
 pub async fn health_check_handler() -> impl IntoResponse {
     const MESSAGE: &str = "Todo List API Services";
 
-    Response::with_msg(StatusCode::OK, OK, MESSAGE)
+    Response::new(StatusCode::OK)
+        .status(OK)
+        .msg(MESSAGE)
         .add_kv("version", json!(env!("CARGO_PKG_VERSION")))
 }
 

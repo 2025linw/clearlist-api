@@ -45,29 +45,21 @@ impl Response {
 
         self
     }
-
-    // TODO: deprecate this? replace with status(), msg(), data() methods?
-    pub fn with_msg(code: StatusCode, status: &str, msg: &str) -> Self {
-        Self::new(code).status(status).msg(msg)
-    }
-
-    // TODO: deprecate this? replace with status(), msg(), data() methods?
-    pub fn with_data(code: StatusCode, status: &str, data: serde_json::Value) -> Self {
-        Self::new(code).status(status).data(data)
-    }
 }
 
 impl From<Error> for Response {
     fn from(value: Error) -> Self {
         match value {
-            Error::InvalidRequest(msg) => Self::with_msg(StatusCode::BAD_REQUEST, ERR, &msg),
+            Error::InvalidRequest(msg) => Self::new(StatusCode::BAD_REQUEST).status(ERR).msg(&msg),
         }
     }
 }
 
 impl From<DBError> for Response {
     fn from(value: DBError) -> Self {
-        Self::with_msg(StatusCode::INTERNAL_SERVER_ERROR, ERR, &value.to_string())
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR)
+            .status(ERR)
+            .msg(&value.to_string())
     }
 }
 

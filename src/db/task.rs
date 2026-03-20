@@ -25,7 +25,6 @@ pub async fn query_tasks(
         builder.push(" AND deleted_at IS NULL");
     }
     if let Some(start) = start_filter {
-        // TODO: update this to match with start_date or start_at
         for (cmp, date) in start {
             builder.push(" AND ");
 
