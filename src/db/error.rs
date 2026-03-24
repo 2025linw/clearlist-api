@@ -2,9 +2,15 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
+    /// Error that occurs with the database connection
     Connection(String),
+    /// Error that occurs with the database pool
     Pool(String),
+    /// Error that occurs with normal database operation
     Operation(String),
+    /// Error that breaks application integrity (Application error)
+    Application(String),
+    /// Unknown error with database
     Miscellaneous(String),
 }
 
@@ -14,6 +20,7 @@ impl std::fmt::Display for Error {
             Error::Connection(msg) => write!(f, "database connection error: {}", msg),
             Error::Pool(msg) => write!(f, "database pool error: {}", msg),
             Error::Operation(msg) => write!(f, "database operation error: {}", msg),
+            Error::Application(msg) => write!(f, "application integrity error: {}", msg),
             Error::Miscellaneous(msg) => write!(f, "miscellaneous database error: {}", msg),
         }
     }
@@ -38,6 +45,16 @@ impl From<sqlx::Error> for Error {
 
             sqlx::Error::InvalidArgument(msg) => Self::Operation(msg),
             sqlx::Error::Database(database_error) => {
+                if let Some(pg_code) = database_error.code() {
+                    if pg_code == "P0001" {
+                        // if error is from a custom raise in a function or trigger function
+                        return Self::Application(database_error.message().to_string());
+                    } else if pg_code.starts_with("23") {
+                        // if error is related to integrity constraints
+                        return Self::Application(database_error.message().to_string());
+                    }
+                }
+
                 Self::Operation(database_error.message().to_string())
             }
 

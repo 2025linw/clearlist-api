@@ -17,6 +17,7 @@ pub struct Task {
     pub title: String,
     pub notes: Option<String>,
     // TODO: when performing schema validation, check that only one of start_date OR start_at exists.
+    // Try to combine into untagged enum with Start::On and Start::At
     pub start_date: Option<chrono::NaiveDate>,
     pub start_at: Option<chrono::DateTime<Utc>>,
     pub deadline: Option<chrono::NaiveDate>,
@@ -34,7 +35,15 @@ pub struct Task {
 
     #[serde(default)]
     #[sqlx(skip)]
-    pub tags: Option<Vec<Tag>>,
+    pub tags: Vec<Tag>,
+}
+
+#[derive(Debug, FromRow)]
+pub struct TaskTag {
+    pub task_id: uuid::Uuid,
+
+    #[sqlx(flatten)]
+    pub tag: Tag,
 }
 
 #[derive(Debug, Deserialize)]

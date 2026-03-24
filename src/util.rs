@@ -13,18 +13,6 @@ static COOKIE_KEY: LazyLock<String> =
 
 #[derive(Debug, FromRow)]
 #[sqlx(rename_all = "camelCase")]
-pub struct User {
-    pub id: Uuid,
-    pub name: String,
-    pub email: String,
-    pub email_verified: bool,
-    pub image: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, FromRow)]
-#[sqlx(rename_all = "camelCase")]
 pub struct Session {
     pub id: Uuid,
     pub token: String,
@@ -36,9 +24,7 @@ pub struct Session {
     pub expires_at: DateTime<Utc>,
 }
 
-pub struct CurrentSession(pub User, pub Session);
-
-impl FromRequestParts<AppState> for CurrentSession {
+impl FromRequestParts<AppState> for Session {
     type Rejection = (StatusCode, &'static str);
 
     async fn from_request_parts(
@@ -58,12 +44,12 @@ impl FromRequestParts<AppState> for CurrentSession {
             .next()
             .unwrap();
 
-        let conn = state.db.get_pool_ref();
+        let conn = state.db.pool();
         let session: Session = match sqlx::query_as::<Postgres, Session>(
             "SELECT * FROM auth.session WHERE token = $1",
         )
         .bind(session_id)
-        .fetch_one(conn)
+        .fetch_one(&conn)
         .await
         {
             Err(_) => return Err((StatusCode::UNAUTHORIZED, "session has expired")),
@@ -74,17 +60,11 @@ impl FromRequestParts<AppState> for CurrentSession {
             return Err((StatusCode::UNAUTHORIZED, "session has expired"));
         }
 
-        let user: User = sqlx::query_as::<Postgres, User>("SELECT * FROM auth.user WHERE id = $1")
-            .bind(&session.user_id)
-            .fetch_one(conn)
-            .await
-            .unwrap();
-
-        Ok(CurrentSession(user, session))
+        Ok(session)
     }
 }
 
-pub struct OptionalSession(pub Option<CurrentSession>);
+pub type OptionalSession = Option<Session>;
 
 impl FromRequestParts<AppState> for OptionalSession {
     type Rejection = (StatusCode, &'static str);
@@ -93,9 +73,9 @@ impl FromRequestParts<AppState> for OptionalSession {
         parts: &mut axum::http::request::Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        match CurrentSession::from_request_parts(parts, state).await {
-            Ok(session) => Ok(OptionalSession(Some(session))),
-            Err(_) => Ok(OptionalSession(None)),
+        match Session::from_request_parts(parts, state).await {
+            Ok(session) => Ok(Some(session)),
+            Err(_) => Ok(None),
         }
     }
 }

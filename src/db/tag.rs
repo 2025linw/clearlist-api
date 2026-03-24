@@ -5,7 +5,7 @@ use super::Result;
 use crate::{com::model::Tag, db::query_as_wrapper};
 
 pub async fn query_tags(
-    conn: &PgPool,
+    conn: PgPool,
     user_id: Uuid,
     limit: i64,
     offset: i64,
@@ -15,21 +15,22 @@ pub async fn query_tags(
     let mut builder = QueryBuilder::new("SELECT * FROM app.tags WHERE created_by = ");
     builder.push_bind(user_id);
     if deleted {
-        builder.push(" AND deleted_at is NOT NULL");
+        builder.push(" AND deleted_at IS NOT NULL");
     } else {
-        builder.push(" AND deleted_at is IS NULL");
+        builder.push(" AND deleted_at IS NULL");
     }
+    builder.push(" ORDER BY updated_at DESC");
     builder.push(format!(" LIMIT {}", limit));
     builder.push(format!(" OFFSET {}", offset));
 
     let query = builder.build_query_as::<Tag>();
 
-    let tags = query.fetch_all(conn).await?;
+    let tags = query.fetch_all(&conn).await?;
 
     Ok(tags)
 }
 
-pub async fn insert_tag(conn: &PgPool, user_id: Uuid, tag: Tag) -> Result<Uuid> {
+pub async fn insert_tag(conn: PgPool, user_id: Uuid, tag: Tag) -> Result<Uuid> {
     let mut transaction = conn.begin().await?;
 
     let tag_id = sqlx::query_scalar(
@@ -48,7 +49,7 @@ pub async fn insert_tag(conn: &PgPool, user_id: Uuid, tag: Tag) -> Result<Uuid> 
     Ok(tag_id)
 }
 
-pub async fn select_tag(conn: &PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Option<Tag>> {
+pub async fn select_tag(conn: PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Option<Tag>> {
     let tag_opt = query_as_wrapper::<Tag>(
         "SELECT *
         FROM app.tags
@@ -56,7 +57,7 @@ pub async fn select_tag(conn: &PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Op
     )
     .bind(tag_id)
     .bind(user_id)
-    .fetch_optional(conn)
+    .fetch_optional(&conn)
     .await?;
 
     match tag_opt {
@@ -66,7 +67,7 @@ pub async fn select_tag(conn: &PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Op
 }
 
 pub async fn update_tag(
-    conn: &PgPool,
+    conn: PgPool,
     tag_id: Uuid,
     user_id: Uuid,
     tag: Tag,
@@ -80,7 +81,7 @@ pub async fn update_tag(
         WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
     )
     .bind(tag_id)
-    .bind(&user_id)
+    .bind(user_id)
     .bind(tag.label)
     .bind(tag.category)
     .execute(&mut *transaction)
@@ -96,7 +97,7 @@ pub async fn update_tag(
     select_tag(conn, tag_id, user_id).await
 }
 
-pub async fn delete_tag_soft(conn: &PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
+pub async fn delete_tag(conn: PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
     let mut transaction = conn.begin().await?;
 
     if sqlx::query(
@@ -112,6 +113,7 @@ pub async fn delete_tag_soft(conn: &PgPool, tag_id: Uuid, user_id: Uuid) -> Resu
     .rows_affected()
         == 0
     {
+        transaction.rollback().await?;
         return Ok(None);
     }
 
@@ -120,21 +122,127 @@ pub async fn delete_tag_soft(conn: &PgPool, tag_id: Uuid, user_id: Uuid) -> Resu
     Ok(Some(()))
 }
 
-pub async fn delete_tag_hard(conn: &PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
-    let mut transaction = conn.begin().await?;
+#[cfg(test)]
+mod tests {
+    use std::env;
 
-    if sqlx::query("DELETE FROM app.tags WHERE id = $1 AND created_by = $2")
-        .bind(tag_id)
-        .bind(user_id)
-        .execute(&mut *transaction)
-        .await?
-        .rows_affected()
-        == 0
-    {
-        return Ok(None);
+    use std::sync::OnceLock;
+
+    use tokio::test;
+
+    use super::*;
+
+    static DB_URL: OnceLock<String> = OnceLock::new();
+
+    fn get_connect_url() -> &'static str {
+        let conn = DB_URL.get_or_init(|| {
+            dotenvy::from_filename(".env.testing").ok();
+
+            let url: String = env::var("DATABASE_URL").unwrap();
+
+            url
+        });
+
+        // run migrations
+
+        conn
     }
 
-    transaction.commit().await?;
+    async fn setup() -> PgPool {
+        dotenvy::from_filename(".env.testing").ok();
 
-    Ok(Some(()))
+        PgPool::connect(get_connect_url()).await.unwrap()
+    }
+
+    #[test]
+    async fn query_base() {
+        let conn = setup().await;
+
+        let tags = match query_tags(conn, Uuid::nil(), 100, 0, false).await {
+            Ok(tags) => tags,
+            Err(err) => {
+                panic!("{}", err);
+            }
+        };
+
+        assert_eq!(tags.len(), 6);
+        for (n, tag) in (1..=6).zip(tags.iter()) {
+            assert_eq!(tag.label, format!("Test Tag {}", n))
+        }
+    }
+
+    #[test]
+    async fn query_limit_3() {
+        let conn = setup().await;
+
+        let tags = match query_tags(conn, Uuid::nil(), 3, 0, false).await {
+            Ok(tags) => tags,
+            Err(err) => {
+                panic!("{}", err);
+            }
+        };
+
+        assert_eq!(tags.len(), 3);
+        for (n, tag) in (1..=3).zip(tags.iter()) {
+            assert_eq!(tag.label, format!("Test Tag {}", n));
+        }
+    }
+
+    #[test]
+    async fn query_limit_3_with_offset() {
+        let conn = setup().await;
+
+        for i in 0..2 {
+            let i_min = i * 3;
+            let i_max = i_min + 3;
+
+            let tags = match query_tags(conn.clone(), Uuid::nil(), 3, i_min, false).await {
+                Ok(tags) => tags,
+                Err(err) => {
+                    panic!("{}", err);
+                }
+            };
+
+            assert_eq!(tags.len(), 3);
+            for (i, tag) in (i_min..=i_max).zip(tags.iter()) {
+                assert_eq!(tag.label, format!("Test Tag {}", i + 1));
+            }
+        }
+    }
+
+    #[test]
+    async fn query_deleted() {
+        let conn = setup().await;
+
+        let tags = match query_tags(conn, Uuid::nil(), 100, 0, true).await {
+            Ok(tags) => tags,
+            Err(err) => {
+                panic!("{}", err);
+            }
+        };
+
+        assert_eq!(tags.len(), 3);
+        for (n, tag) in (7..=9).zip(tags.iter()) {
+            assert_eq!(tag.label, format!("Test Tag {}", n));
+        }
+    }
+
+    #[test]
+    async fn query_ensure_order_consistency() {
+        let conn = setup().await;
+
+        for _ in 0..10 {
+            let tags = match query_tags(conn.clone(), Uuid::nil(), 100, 0, false).await {
+                Ok(tags) => tags,
+                Err(err) => {
+                    panic!("{}", err);
+                }
+            };
+
+            assert_eq!(tags.len(), 6);
+            for (n, tag) in (1..=6).zip(tags.iter()) {
+                assert_eq!(tag.label, format!("Test Tag {}", n))
+            }
+        }
+    }
 }

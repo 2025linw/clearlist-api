@@ -9,8 +9,8 @@ use uuid::Uuid;
 use std::env;
 
 use sqlx::{
-    Database, FromRow, PgPool, Postgres,
-    postgres::{PgConnectOptions, PgPoolOptions, PgSslMode},
+    FromRow, PgPool, Postgres,
+    postgres::{PgArguments, PgConnectOptions, PgPoolOptions, PgRow, PgSslMode},
     query::QueryAs,
 };
 
@@ -67,27 +67,25 @@ impl DatabaseConn {
     }
 
     /// Get connection from pool
-    pub fn get_pool_ref(&self) -> &PgPool {
-        &self.pool
+    pub fn pool(&self) -> PgPool {
+        self.pool.clone()
     }
 }
 
-fn query_as_wrapper<'q, T>(
-    sql: &'q str,
-) -> QueryAs<'q, Postgres, T, <Postgres as Database>::Arguments<'q>>
+fn query_as_wrapper<'q, T>(sql: &'q str) -> QueryAs<'q, Postgres, T, PgArguments>
 where
-    T: for<'r> FromRow<'r, <Postgres as Database>::Row>,
+    T: for<'r> FromRow<'r, PgRow>,
 {
     sqlx::query_as(sql)
 }
 
-pub async fn is_task_exists(conn: &PgPool, task_id: Uuid, user_id: Uuid) -> Result<bool> {
+pub async fn is_task_exists(conn: PgPool, task_id: Uuid, user_id: Uuid) -> Result<bool> {
     if sqlx::query(
         "SELECT * FROM app.tasks WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
     )
     .bind(task_id)
     .bind(user_id)
-    .execute(conn)
+    .execute(&conn)
     .await?
     .rows_affected()
         == 0

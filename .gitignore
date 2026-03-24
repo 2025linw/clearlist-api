@@ -6,3 +6,5 @@ target
 
 # Environments
 **/.env
+**/.env.*
+!**/.env.template

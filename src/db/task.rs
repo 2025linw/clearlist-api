@@ -1,15 +1,17 @@
+use std::collections::{HashMap, hash_map::Entry};
+
 use chrono::NaiveDate;
-use sqlx::{PgPool, QueryBuilder};
+use sqlx::{PgPool, Postgres, QueryBuilder, Transaction};
 use uuid::Uuid;
 
-use super::Result;
+use super::{Error, Result};
 use crate::{
-    com::model::{Task, db::SQLCmp},
+    com::model::{Tag, Task, TaskTag, db::SQLCmp},
     db::query_as_wrapper,
 };
 
 pub async fn query_tasks(
-    conn: &PgPool,
+    conn: PgPool,
     user_id: Uuid,
     limit: i64,
     offset: i64,
@@ -18,9 +20,9 @@ pub async fn query_tasks(
     deadline_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
 ) -> Result<Vec<Task>> {
     let mut builder = QueryBuilder::new("SELECT * FROM app.tasks WHERE created_by = ");
-    builder.push_bind(&user_id);
+    builder.push_bind(user_id);
     if deleted {
-        builder.push(" AND deleted_at NOT NULL");
+        builder.push(" AND deleted_at IS NOT NULL");
     } else {
         builder.push(" AND deleted_at IS NULL");
     }
@@ -43,22 +45,44 @@ pub async fn query_tasks(
             builder.push_bind(date);
         }
     }
+    builder.push(" GROUP BY t.id");
+    builder.push(" ORDER BY updated_at DESC");
     builder.push(format!(" LIMIT {}", limit));
     builder.push(format!(" OFFSET {}", offset));
 
     let query = builder.build_query_as::<Task>();
 
-    let mut tasks = query.fetch_all(conn).await?;
+    let mut tasks = query.fetch_all(&conn).await?;
 
-    // TODO: do this in one query then map?
+    let task_ids: Vec<Uuid> = tasks.iter().map(|task| task.id).collect();
+    let tags = query_as_wrapper::<TaskTag>(
+        "SELECT tt.task_id, tg.*
+            FROM app.task_tags tt
+            LEFT JOIN app.tags tg ON tt.tag_id = tg.id
+            WHERE tt.task_id = ANY($1)",
+    )
+    .bind(task_ids)
+    .fetch_all(&conn)
+    .await?;
+
+    let mut task_tag_map: HashMap<Uuid, Vec<Tag>> = HashMap::new();
+    for TaskTag { task_id, tag } in tags {
+        if let Entry::Vacant(e) = task_tag_map.entry(task_id) {
+            e.insert(vec![tag]);
+        } else {
+            task_tag_map.get_mut(&task_id).unwrap().push(tag);
+        }
+    }
     for task in tasks.iter_mut() {
-        task.tags = Some(tag::query_task_tags(conn, task.id, user_id.clone()).await?);
+        if task_tag_map.contains_key(&task.id) {
+            task.tags = task_tag_map.remove(&task.id).unwrap();
+        }
     }
 
     Ok(tasks)
 }
 
-pub async fn insert_task(conn: &PgPool, user_id: Uuid, task: Task) -> Result<Uuid> {
+pub async fn insert_task(conn: PgPool, user_id: Uuid, task: Task) -> Result<Uuid> {
     let mut transaction = conn.begin().await?;
 
     let task_id = sqlx::query_scalar(
@@ -71,17 +95,12 @@ pub async fn insert_task(conn: &PgPool, user_id: Uuid, task: Task) -> Result<Uui
     .bind(task.start_date)
     .bind(task.start_at)
     .bind(task.deadline)
-    .bind(&user_id)
+    .bind(user_id)
     .fetch_one(&mut *transaction)
     .await?;
 
-    if let Some(tags) = task.tags {
-        tag::update_task_tags(
-            &mut *transaction,
-            task_id,
-            tags.iter().map(|tag| tag.id).collect(),
-        )
-        .await?;
+    if !task.tags.is_empty() {
+        update_tag_helper(&mut transaction, task_id, task.tags).await?;
     }
 
     transaction.commit().await?;
@@ -89,21 +108,31 @@ pub async fn insert_task(conn: &PgPool, user_id: Uuid, task: Task) -> Result<Uui
     Ok(task_id)
 }
 
-pub async fn select_task(conn: &PgPool, task_id: Uuid, user_id: Uuid) -> Result<Option<Task>> {
+pub async fn select_task(conn: PgPool, task_id: Uuid, user_id: Uuid) -> Result<Option<Task>> {
     let task_opt = query_as_wrapper::<Task>(
         "SELECT *
         FROM app.tasks
         WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
     )
     .bind(task_id)
-    .bind(&user_id)
-    .fetch_optional(conn)
+    .bind(user_id)
+    .fetch_optional(&conn)
     .await?;
 
     match task_opt {
         None => Ok(None),
         Some(mut task) => {
-            task.tags = Some(tag::query_task_tags(conn, task_id, user_id).await?);
+            let tags = query_as_wrapper::<Tag>(
+                "SELECT tg.*
+                FROM app.task_tags tt
+                JOIN app.tags tg ON tt.tag_id = tg.id
+                WHERE tt.task_id = $1 AND tg.deleted_at IS NULL",
+            )
+            .bind(task_id)
+            .fetch_all(&conn)
+            .await?;
+
+            task.tags = tags;
 
             Ok(Some(task))
         }
@@ -111,7 +140,7 @@ pub async fn select_task(conn: &PgPool, task_id: Uuid, user_id: Uuid) -> Result<
 }
 
 pub async fn update_task(
-    conn: &PgPool,
+    conn: PgPool,
     task_id: Uuid,
     user_id: Uuid,
     task: Task,
@@ -125,7 +154,7 @@ pub async fn update_task(
         WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
     )
     .bind(task_id)
-    .bind(&user_id)
+    .bind(user_id)
     .bind(task.title)
     .bind(task.notes)
     .bind(task.start_date)
@@ -139,13 +168,8 @@ pub async fn update_task(
         return Ok(None);
     }
 
-    if let Some(tags) = task.tags {
-        tag::update_task_tags(
-            &mut *transaction,
-            task_id,
-            tags.iter().map(|tag| tag.id).collect(),
-        )
-        .await?;
+    if !task.tags.is_empty() {
+        update_tag_helper(&mut transaction, task_id, task.tags).await?;
     }
 
     transaction.commit().await?;
@@ -153,7 +177,7 @@ pub async fn update_task(
     select_task(conn, task_id, user_id).await
 }
 
-pub async fn delete_task_soft(conn: &PgPool, task_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
+pub async fn delete_task(conn: PgPool, task_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
     let mut transaction = conn.begin().await?;
 
     if sqlx::query(
@@ -177,62 +201,62 @@ pub async fn delete_task_soft(conn: &PgPool, task_id: Uuid, user_id: Uuid) -> Re
     Ok(Some(()))
 }
 
-pub async fn delete_task_hard(conn: &PgPool, task_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
-    let mut transaction = conn.begin().await?;
+pub async fn update_tag_helper(
+    tx: &mut Transaction<'_, Postgres>,
+    task_id: Uuid,
+    tags: Vec<Tag>,
+) -> Result<()> {
+    let mut builder = QueryBuilder::new("INSERT INTO app.task_tags (task_id, tag_id) VALUES");
 
-    if sqlx::query("DELETE FROM app.tasks WHERE id = $1 AND created_by = $2")
-        .bind(task_id)
-        .bind(user_id)
-        .execute(&mut *transaction)
-        .await?
-        .rows_affected()
-        == 0
-    {
-        return Ok(None);
+    let mut separated = builder.separated(", ");
+    for tag in tags.iter() {
+        separated.push(" (");
+        separated.push_bind(task_id);
+        separated.push(", ");
+        separated.push_bind(tag.id);
+        separated.push(")");
     }
 
-    transaction.commit().await?;
+    let num_rows = builder.build().execute(&mut **tx).await?.rows_affected() as usize;
 
-    Ok(Some(()))
+    if num_rows != tags.len() {
+        return Err(Error::Operation(format!(
+            "expected: {} tags; got: {}",
+            num_rows,
+            tags.len()
+        )));
+    }
+
+    Ok(())
 }
 
 pub mod tag {
-    use sqlx::{Executor, Postgres, QueryBuilder};
+    use sqlx::{PgPool, QueryBuilder};
     use uuid::Uuid;
 
-    use crate::{
-        com::model::Tag,
-        db::{Result, query_as_wrapper},
-    };
+    use crate::{com::model::Tag, db::query_as_wrapper};
 
-    // NOTE: all these functions requires/expect that the task with task_id exists
+    use super::Result;
 
-    pub async fn query_task_tags<'e, E>(conn: E, task_id: Uuid, user_id: Uuid) -> Result<Vec<Tag>>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    pub async fn query_task_tags(conn: PgPool, task_id: Uuid, user_id: Uuid) -> Result<Vec<Tag>> {
         Ok(query_as_wrapper::<Tag>(
             "SELECT *
-            FROM app.tags tg
-            JOIN app.task_tags tt ON tg.id = tt.tag_id
-            JOIN app.tasks t ON tt.task_id = t.id AND t.deleted_at IS NULL
-            WHERE tt.task_id = $1 AND t.created_by = $2 AND tg.deleted_at IS NULL",
+                FROM app.tags tg
+                JOIN app.task_tags tt ON tg.id = tt.tag_id
+                JOIN app.tasks t ON tt.task_id = t.id AND t.deleted_at IS NULL
+                WHERE tt.task_id = $1 AND t.created_by = $2 AND tg.deleted_at IS NULL",
         )
         .bind(task_id)
         .bind(user_id)
-        .fetch_all(conn)
+        .fetch_all(&conn)
         .await?)
     }
 
-    pub async fn update_task_tags<'e, E>(
-        conn: E,
+    pub async fn update_task_tags(
+        conn: PgPool,
         task_id: Uuid,
         tag_ids: Vec<Uuid>,
-    ) -> Result<Option<()>>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
-        // TODO: check if any of the tag_ids are deleted
+    ) -> Result<Option<()>> {
         let mut builder =
             QueryBuilder::new("WITH deleted AS (DELETE FROM app.task_tags WHERE task_id = ");
         builder.push_bind(task_id);
@@ -242,40 +266,28 @@ pub mod tag {
         builder.push_bind(&tag_ids);
         builder.push(") AS unnest_tag ON TRUE");
 
-        if builder.build().execute(conn).await?.rows_affected() != tag_ids.len() as u64 {
+        if builder.build().execute(&conn).await?.rows_affected() != tag_ids.len() as u64 {
             return Ok(None);
         }
 
         Ok(Some(()))
     }
 
-    pub async fn add_task_tag<'e, E>(conn: E, task_id: Uuid, tag_id: Uuid) -> Result<Option<()>>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
-        // TODO: check if tag_id is deleted
-        if sqlx::query("INSERT INTO app.task_tags (task_id, tag_id) VALUES ($1, $2)")
+    pub async fn add_task_tag(conn: PgPool, task_id: Uuid, tag_id: Uuid) -> Result<Option<()>> {
+        sqlx::query("INSERT INTO app.task_tags (task_id, tag_id) VALUES ($1, $2)")
             .bind(task_id)
             .bind(tag_id)
-            .execute(conn)
-            .await?
-            .rows_affected()
-            != 1
-        {
-            return Ok(None);
-        }
+            .execute(&conn)
+            .await?;
 
         Ok(Some(()))
     }
 
-    pub async fn delete_task_tag<'e, E>(conn: E, task_id: Uuid, tag_id: Uuid) -> Result<Option<()>>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    pub async fn delete_task_tag(conn: PgPool, task_id: Uuid, tag_id: Uuid) -> Result<Option<()>> {
         if sqlx::query("DELETE FROM app.task_tags WHERE task_id = $1 AND tag_id = $2")
             .bind(task_id)
             .bind(tag_id)
-            .execute(conn)
+            .execute(&conn)
             .await?
             .rows_affected()
             == 0
@@ -285,4 +297,9 @@ pub mod tag {
 
         Ok(Some(()))
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 }

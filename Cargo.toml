@@ -30,3 +30,6 @@ tower_governor = { version = "0.7.0", features = ["axum"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
 uuid = { version = "1.22.0", features = ["serde", "v4"] }
+
+[dev-dependencies]
+tokio = "1.50.0"
