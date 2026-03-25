@@ -4,24 +4,30 @@ use uuid::Uuid;
 use super::Result;
 use crate::{com::model::Tag, db::query_as_wrapper};
 
-pub async fn query_tags(
-    conn: PgPool,
-    user_id: Uuid,
-    limit: i64,
-    offset: i64,
-    deleted: bool,
-) -> Result<Vec<Tag>> {
+pub struct TagQueryOptions {
+    pub user_id: Uuid,
+
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub deleted: bool,
+}
+
+pub async fn query_tags(conn: PgPool, opts: TagQueryOptions) -> Result<Vec<Tag>> {
     // TODO: later allow filtering of tags by name search or category
     let mut builder = QueryBuilder::new("SELECT * FROM app.tags WHERE created_by = ");
-    builder.push_bind(user_id);
-    if deleted {
+    builder.push_bind(opts.user_id);
+    if opts.deleted {
         builder.push(" AND deleted_at IS NOT NULL");
     } else {
         builder.push(" AND deleted_at IS NULL");
     }
     builder.push(" ORDER BY updated_at DESC");
+if let Some(limit) = opts.limit {
     builder.push(format!(" LIMIT {}", limit));
+}
+    if let Some(offset) = opts.offset {
     builder.push(format!(" OFFSET {}", offset));
+}
 
     let query = builder.build_query_as::<Tag>();
 

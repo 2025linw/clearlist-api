@@ -10,23 +10,25 @@ use crate::{
     db::query_as_wrapper,
 };
 
-pub async fn query_tasks(
-    conn: PgPool,
-    user_id: Uuid,
-    limit: i64,
-    offset: i64,
-    deleted: bool,
-    start_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
-    deadline_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
-) -> Result<Vec<Task>> {
+pub struct TaskQueryOptions {
+    pub user_id: Uuid,
+
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub deleted: bool,
+    pub start_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
+    pub deadline_filter: Option<Vec<(SQLCmp, NaiveDate)>>,
+}
+
+pub async fn query_tasks(conn: PgPool, opts: TaskQueryOptions) -> Result<Vec<Task>> {
     let mut builder = QueryBuilder::new("SELECT * FROM app.tasks WHERE created_by = ");
-    builder.push_bind(user_id);
-    if deleted {
+    builder.push_bind(opts.user_id);
+    if opts.deleted {
         builder.push(" AND deleted_at IS NOT NULL");
     } else {
         builder.push(" AND deleted_at IS NULL");
     }
-    if let Some(start) = start_filter {
+    if let Some(start) = opts.start_filter {
         for (cmp, date) in start {
             builder.push(" AND ");
 
@@ -37,7 +39,7 @@ pub async fn query_tasks(
             builder.push(")");
         }
     }
-    if let Some(deadline) = deadline_filter {
+    if let Some(deadline) = opts.deadline_filter {
         for (cmp, date) in deadline {
             builder.push(" AND ");
 
@@ -47,8 +49,12 @@ pub async fn query_tasks(
     }
     builder.push(" GROUP BY t.id");
     builder.push(" ORDER BY updated_at DESC");
+    if let Some(limit) = opts.limit {
     builder.push(format!(" LIMIT {}", limit));
+    }
+    if let Some(offset) = opts.offset {
     builder.push(format!(" OFFSET {}", offset));
+    }
 
     let query = builder.build_query_as::<Task>();
 

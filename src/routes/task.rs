@@ -14,7 +14,7 @@ use crate::{
         db::SQLCmp,
         query::{DateFilter, Pagination},
     },
-    db::task::{delete_task, insert_task, query_tasks, select_task, update_task},
+    db::task::{TaskQueryOptions, delete_task, insert_task, query_tasks, select_task, update_task},
     error::Error,
     response::{ERR, ErrorResponse, OK, Response, SUCCESS},
     util::Session,
@@ -89,16 +89,16 @@ pub async fn query_handler(
         None
     };
 
-    let tasks: Vec<Task> = query_tasks(
-        data.db.pool(),
-        session.user_id,
-        limit,
-        offset,
+    let opts = TaskQueryOptions {
+        user_id: session.user_id,
+        limit: Some(limit),
+        offset: Some(offset),
         deleted,
-        start,
-        deadline,
-    )
-    .await?;
+        start_filter: start,
+        deadline_filter: deadline,
+    };
+
+    let tasks: Vec<Task> = query_tasks(data.db.pool(), opts).await?;
 
     Ok(Response::new(StatusCode::OK).status(OK).data(json!({
         "count": tasks.len(),

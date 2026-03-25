@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     com::model::{Tag, TagQuery, query::Pagination},
-    db::tag::{delete_tag, insert_tag, query_tags, select_tag, update_tag},
+    db::tag::{TagQueryOptions, delete_tag, insert_tag, query_tags, select_tag, update_tag},
     error::Error,
     response::{ERR, ErrorResponse, OK, Response, SUCCESS},
     util::Session,
@@ -29,8 +29,14 @@ pub async fn query_handler(
     let limit = i64::try_from(limit).map_err(|e| Error::InvalidRequest(e.to_string()))?;
     let offset = (page - 1) * limit;
 
-    let tags: Vec<Tag> =
-        query_tags(data.db.pool(), session.user_id, limit, offset, deleted).await?;
+    let opts = TagQueryOptions {
+        user_id: session.user_id,
+        limit: Some(limit),
+        offset: Some(offset),
+        deleted,
+    };
+
+    let tags: Vec<Tag> = query_tags(data.db.pool(), opts).await?;
 
     Ok(Response::new(StatusCode::OK).status(OK).data(json!({
         "count": tags.len(),
