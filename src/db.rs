@@ -1,10 +1,9 @@
-mod error;
-
 pub mod tag;
 pub mod task;
 
+mod error;
+
 pub use error::{Error, Result};
-use uuid::Uuid;
 
 use std::env;
 
@@ -13,8 +12,12 @@ use sqlx::{
     postgres::{PgArguments, PgConnectOptions, PgPoolOptions, PgRow, PgSslMode},
     query::QueryAs,
 };
+use uuid::Uuid;
 
 const MAX_CONNECTIONS: u32 = 20;
+
+pub const DEFAULT_LIMIT: i64 = 50;
+pub const MAX_LIMIT: i64 = 200;
 
 #[derive(Clone)]
 pub struct DatabaseConn {

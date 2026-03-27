@@ -3,7 +3,7 @@ use serde::Deserialize;
 use serde_with::{DisplayFromStr, serde_as};
 use uuid::Uuid;
 
-use crate::com::{model::db::SQLCmp, util::deserialize_daterange};
+use crate::com::util::deserialize_daterange;
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
@@ -23,7 +23,7 @@ impl Default for Pagination {
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
-pub enum DateFilter {
+pub enum DateFilterQuery {
     Exact(NaiveDate),
 
     BracketInterval(BracketInterval),
@@ -34,47 +34,11 @@ pub enum DateFilter {
 
 #[derive(Debug, Deserialize)]
 pub struct BracketInterval {
-    ne: Option<NaiveDate>,
-    lt: Option<NaiveDate>,
-    gt: Option<NaiveDate>,
-    lte: Option<NaiveDate>,
-    gte: Option<NaiveDate>,
-}
-
-impl BracketInterval {
-    pub fn is_valid(&self) -> bool {
-        if self.lt.is_some() && self.lte.is_some() {
-            return false;
-        }
-
-        if self.gt.is_some() && self.gte.is_some() {
-            return false;
-        }
-
-        true
-    }
-
-    pub fn get_cmps(&self) -> Vec<(SQLCmp, NaiveDate)> {
-        let mut cmps = Vec::new();
-
-        if let Some(date) = self.ne {
-            cmps.push((SQLCmp::NotEqual, date));
-        }
-        if let Some(date) = self.lt {
-            cmps.push((SQLCmp::LessThan, date));
-        }
-        if let Some(date) = self.gt {
-            cmps.push((SQLCmp::GreaterThan, date));
-        }
-        if let Some(date) = self.lte {
-            cmps.push((SQLCmp::LessThanEqual, date));
-        }
-        if let Some(date) = self.gte {
-            cmps.push((SQLCmp::GreaterThanEqual, date));
-        }
-
-        cmps
-    }
+    pub(crate) ne: Option<NaiveDate>,
+    pub(crate) gt: Option<NaiveDate>,
+    pub(crate) gte: Option<NaiveDate>,
+    pub(crate) lt: Option<NaiveDate>,
+    pub(crate) lte: Option<NaiveDate>,
 }
 
 pub type ISO8601Interval = [NaiveDate; 2];

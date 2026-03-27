@@ -4,7 +4,7 @@ use sqlx::FromRow;
 
 use super::query::Pagination;
 
-#[derive(Debug, Deserialize, Serialize, FromRow)]
+#[derive(Debug, PartialEq, Deserialize, Serialize, FromRow)]
 pub struct Tag {
     #[serde(skip_deserializing)]
     pub id: uuid::Uuid,

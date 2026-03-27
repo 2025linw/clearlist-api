@@ -1,10 +1,10 @@
 mod com;
 mod error;
 mod response;
+mod util;
 
 mod db;
 mod routes;
-mod util;
 
 pub use db::DatabaseConn;
 

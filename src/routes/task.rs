@@ -11,8 +11,8 @@ use crate::{
     AppState,
     com::model::{
         Task, TaskQuery,
-        db::SQLCmp,
-        query::{DateFilter, Pagination},
+        db::{DateFilterDB, SortOrder},
+        query::Pagination,
     },
     db::task::{TaskQueryOptions, delete_task, insert_task, query_tasks, select_task, update_task},
     error::Error,
@@ -36,55 +36,13 @@ pub async fn query_handler(
     let limit = i64::try_from(limit).map_err(|e| Error::InvalidRequest(e.to_string()))?;
     let offset = (page - 1) * limit;
 
-    let start = if let Some(start) = start_date {
-        match start {
-            DateFilter::Exact(date) => Some(vec![(SQLCmp::Equal, date)]),
-            DateFilter::BracketInterval(interval) => {
-                let cmps = interval.get_cmps();
-
-                // check if any comparisons are overspecified (i.e. lt and lte, or gt and gte)
-                if cmps
-                    .iter()
-                    .filter(|(cmp, _)| {
-                        matches!(cmp, SQLCmp::LessThan) || matches!(cmp, SQLCmp::LessThanEqual)
-                    })
-                    .count()
-                    > 1
-                {
-                    return Err(Error::InvalidRequest(
-                        "conflicting comparison operators for 'start_date'".to_string(),
-                    )
-                    .into());
-                }
-
-                Some(cmps)
-            }
-            DateFilter::ISO8601Interval([start, end]) => Some(vec![
-                (SQLCmp::GreaterThanEqual, start),
-                (SQLCmp::LessThanEqual, end),
-            ]),
-        }
+    let start_filter = if let Some(start) = start_date {
+        Some(DateFilterDB::try_from(start).map_err(Error::from)?)
     } else {
         None
     };
-    let deadline = if let Some(deadline) = deadline {
-        match deadline {
-            DateFilter::Exact(date) => Some(vec![(SQLCmp::Equal, date)]),
-            DateFilter::BracketInterval(interval) => {
-                if !interval.is_valid() {
-                    return Err(Error::InvalidRequest(
-                        "conflicting comparison operators for 'deadline'".to_string(),
-                    )
-                    .into());
-                }
-
-                Some(interval.get_cmps())
-            }
-            DateFilter::ISO8601Interval([start, end]) => Some(vec![
-                (SQLCmp::GreaterThanEqual, start),
-                (SQLCmp::LessThanEqual, end),
-            ]),
-        }
+    let deadline_filter = if let Some(deadline) = deadline {
+        Some(DateFilterDB::try_from(deadline).map_err(Error::from)?)
     } else {
         None
     };
@@ -94,11 +52,14 @@ pub async fn query_handler(
         limit: Some(limit),
         offset: Some(offset),
         deleted,
-        start_filter: start,
-        deadline_filter: deadline,
+        start_filter,
+        deadline_filter,
+        sort_order: SortOrder::default(), // TODO: add sorting query
     };
 
-    let tasks: Vec<Task> = query_tasks(data.db.pool(), opts).await?;
+    let tasks: Vec<Task> = query_tasks(data.db.pool(), opts)
+        .await
+        .map_err(Error::from)?;
 
     Ok(Response::new(StatusCode::OK).status(OK).data(json!({
         "count": tasks.len(),
@@ -111,7 +72,9 @@ pub async fn create_handler(
     State(data): State<AppState>,
     Json(body): Json<Task>,
 ) -> Result<Response, ErrorResponse> {
-    let task_id = insert_task(data.db.pool(), session.user_id, body).await?;
+    let task_id = insert_task(data.db.pool(), session.user_id, body)
+        .await
+        .map_err(Error::from)?;
 
     Ok(Response::new(StatusCode::CREATED)
         .status(SUCCESS)
@@ -123,7 +86,10 @@ pub async fn retrieve_handler(
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
 ) -> Result<Response, ErrorResponse> {
-    if let Some(task) = select_task(data.db.pool(), task_id, session.user_id).await? {
+    if let Some(task) = select_task(data.db.pool(), task_id, session.user_id)
+        .await
+        .map_err(Error::from)?
+    {
         Ok(Response::new(StatusCode::OK).status(OK).data(json!(task)))
     } else {
         Err(ErrorResponse::new(StatusCode::NOT_FOUND)
@@ -138,7 +104,10 @@ pub async fn update_handler(
     Path(task_id): Path<Uuid>,
     Json(body): Json<Task>,
 ) -> Result<Response, ErrorResponse> {
-    if let Some(task) = update_task(data.db.pool(), task_id, session.user_id, body).await? {
+    if let Some(task) = update_task(data.db.pool(), task_id, session.user_id, body)
+        .await
+        .map_err(Error::from)?
+    {
         Ok(Response::new(StatusCode::OK)
             .status(SUCCESS)
             .data(json!(task)))
@@ -154,7 +123,10 @@ pub async fn delete_handler(
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
 ) -> Result<Response, ErrorResponse> {
-    if let Some(()) = delete_task(data.db.pool(), task_id, session.user_id).await? {
+    if let Some(()) = delete_task(data.db.pool(), task_id, session.user_id)
+        .await
+        .map_err(Error::from)?
+    {
         Ok(Response::new(StatusCode::NO_CONTENT))
     } else {
         Err(ErrorResponse::new(StatusCode::NOT_FOUND)
@@ -176,6 +148,7 @@ pub mod tag {
         AppState,
         com::model::query::PathTaskTag,
         db::{is_task_exists, task::tag},
+        error::Error,
         response::{ErrorResponse, OK, Response},
         routes::task::NOT_FOUND,
         util::Session,
@@ -186,11 +159,16 @@ pub mod tag {
         State(data): State<AppState>,
         Path(task_id): Path<Uuid>,
     ) -> Result<Response, ErrorResponse> {
-        if !is_task_exists(data.db.pool(), task_id, session.user_id).await? {
+        if !is_task_exists(data.db.pool(), task_id, session.user_id)
+            .await
+            .map_err(Error::from)?
+        {
             return Err(ErrorResponse::new(StatusCode::NOT_FOUND).msg(NOT_FOUND));
         }
 
-        let tags = tag::query_task_tags(data.db.pool(), task_id, session.user_id).await?;
+        let tags = tag::query_task_tags(data.db.pool(), task_id, session.user_id)
+            .await
+            .map_err(Error::from)?;
 
         Ok(Response::new(StatusCode::OK).status(OK).data(json!({
             "count": tags.len(),
@@ -203,11 +181,17 @@ pub mod tag {
         State(data): State<AppState>,
         Path(PathTaskTag { task_id, tag_id }): Path<PathTaskTag>,
     ) -> Result<Response, ErrorResponse> {
-        if !is_task_exists(data.db.pool(), task_id, session.user_id).await? {
+        if !is_task_exists(data.db.pool(), task_id, session.user_id)
+            .await
+            .map_err(Error::from)?
+        {
             return Err(ErrorResponse::new(StatusCode::NOT_FOUND).msg(NOT_FOUND));
         }
 
-        if let Some(()) = tag::add_task_tag(data.db.pool(), task_id, tag_id).await? {
+        if let Some(()) = tag::add_task_tag(data.db.pool(), task_id, tag_id)
+            .await
+            .map_err(Error::from)?
+        {
             Ok(Response::new(StatusCode::NO_CONTENT))
         } else {
             Ok(Response::new(StatusCode::NOT_FOUND))
@@ -220,11 +204,17 @@ pub mod tag {
         Path(task_id): Path<Uuid>,
         Json(tag_ids): Json<Vec<Uuid>>,
     ) -> Result<Response, ErrorResponse> {
-        if !is_task_exists(data.db.pool(), task_id, session.user_id).await? {
+        if !is_task_exists(data.db.pool(), task_id, session.user_id)
+            .await
+            .map_err(Error::from)?
+        {
             return Err(ErrorResponse::new(StatusCode::NOT_FOUND).msg(NOT_FOUND));
         }
 
-        if let Some(()) = tag::update_task_tags(data.db.pool(), task_id, tag_ids).await? {
+        if let Some(()) = tag::update_task_tags(data.db.pool(), task_id, tag_ids)
+            .await
+            .map_err(Error::from)?
+        {
             Ok(Response::new(StatusCode::NO_CONTENT))
         } else {
             Ok(Response::new(StatusCode::NOT_FOUND).msg("one or more tags do not exist"))
@@ -236,11 +226,17 @@ pub mod tag {
         State(data): State<AppState>,
         Path(PathTaskTag { task_id, tag_id }): Path<PathTaskTag>,
     ) -> Result<Response, ErrorResponse> {
-        if !is_task_exists(data.db.pool(), task_id, session.user_id).await? {
+        if !is_task_exists(data.db.pool(), task_id, session.user_id)
+            .await
+            .map_err(Error::from)?
+        {
             return Err(ErrorResponse::new(StatusCode::NOT_FOUND).msg(NOT_FOUND));
         }
 
-        if let Some(()) = tag::delete_task_tag(data.db.pool(), task_id, tag_id).await? {
+        if let Some(()) = tag::delete_task_tag(data.db.pool(), task_id, tag_id)
+            .await
+            .map_err(Error::from)?
+        {
             Ok(Response::new(StatusCode::NO_CONTENT))
         } else {
             Ok(Response::new(StatusCode::NOT_FOUND))

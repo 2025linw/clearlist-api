@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use axum::{Json, http::StatusCode};
 use serde_json::Value;
 
-use crate::{db::Error as DBError, error::Error};
+use crate::error::Error;
 
 pub const OK: &str = "ok";
 pub const SUCCESS: &str = "success";
@@ -51,15 +51,10 @@ impl From<Error> for Response {
     fn from(value: Error) -> Self {
         match value {
             Error::InvalidRequest(msg) => Self::new(StatusCode::BAD_REQUEST).status(ERR).msg(&msg),
+            Error::InternalServer(msg) => Self::new(StatusCode::INTERNAL_SERVER_ERROR)
+                .status(ERR)
+                .msg(&msg),
         }
-    }
-}
-
-impl From<DBError> for Response {
-    fn from(value: DBError) -> Self {
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR)
-            .status(ERR)
-            .msg(&value.to_string())
     }
 }
 

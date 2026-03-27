@@ -24,7 +24,7 @@ CREATE TABLE app.tasks (
     title varchar(255) NOT NULL,
     notes text,
     -- TODO: create trigger to limit only start_date OR start_at
-    start_date date,
+    start_on date,
     start_at timestamp with time zone,
     deadline date,
 
@@ -58,7 +58,7 @@ CREATE INDEX ON app.tasks (id) WHERE deleted_at IS NOT NULL;
 CREATE INDEX ON app.tags (id) WHERE deleted_at IS NOT NULL;
 
 -- Trigger to ensure that no task or tag is 'deleted' when adding task-tags
-CREATE FUNCTION check_task_tag_not_deleted()
+CREATE OR REPLACE FUNCTION check_task_tag_not_deleted()
 RETURNS TRIGGER AS $$
 BEGIN
     IF EXISTS (

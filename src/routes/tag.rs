@@ -36,7 +36,9 @@ pub async fn query_handler(
         deleted,
     };
 
-    let tags: Vec<Tag> = query_tags(data.db.pool(), opts).await?;
+    let tags: Vec<Tag> = query_tags(data.db.pool(), opts)
+        .await
+        .map_err(Error::from)?;
 
     Ok(Response::new(StatusCode::OK).status(OK).data(json!({
         "count": tags.len(),
@@ -49,7 +51,9 @@ pub async fn create_handler(
     State(data): State<AppState>,
     Json(body): Json<Tag>,
 ) -> Result<Response, ErrorResponse> {
-    let tag_id = insert_tag(data.db.pool(), session.user_id, body).await?;
+    let tag_id = insert_tag(data.db.pool(), session.user_id, body)
+        .await
+        .map_err(Error::from)?;
 
     Ok(Response::new(StatusCode::CREATED)
         .status(SUCCESS)
@@ -61,7 +65,10 @@ pub async fn retrieve_handler(
     State(data): State<AppState>,
     Path(tag_id): Path<Uuid>,
 ) -> Result<Response, ErrorResponse> {
-    if let Some(tag) = select_tag(data.db.pool(), tag_id, session.user_id).await? {
+    if let Some(tag) = select_tag(data.db.pool(), tag_id, session.user_id)
+        .await
+        .map_err(Error::from)?
+    {
         Ok(Response::new(StatusCode::OK).status(OK).data(json!(tag)))
     } else {
         Err(Response::new(StatusCode::NOT_FOUND)
@@ -76,7 +83,10 @@ pub async fn update_handler(
     Path(tag_id): Path<Uuid>,
     Json(body): Json<Tag>,
 ) -> Result<Response, ErrorResponse> {
-    if let Some(tag) = update_tag(data.db.pool(), tag_id, session.user_id, body).await? {
+    if let Some(tag) = update_tag(data.db.pool(), tag_id, session.user_id, body)
+        .await
+        .map_err(Error::from)?
+    {
         Ok(Response::new(StatusCode::OK)
             .status(SUCCESS)
             .data(json!(tag)))
@@ -92,7 +102,10 @@ pub async fn delete_handler(
     State(data): State<AppState>,
     Path(tag_id): Path<Uuid>,
 ) -> Result<Response, ErrorResponse> {
-    if let Some(()) = delete_tag(data.db.pool(), tag_id, session.user_id).await? {
+    if let Some(()) = delete_tag(data.db.pool(), tag_id, session.user_id)
+        .await
+        .map_err(Error::from)?
+    {
         Ok(Response::new(StatusCode::NO_CONTENT))
     } else {
         Err(Response::new(StatusCode::NOT_FOUND)
