@@ -20,7 +20,7 @@ pub async fn query_tags(conn: PgPool, opts: TagQueryOptions) -> Result<Vec<Tag>>
     let limit = opts.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let offset = opts.offset.unwrap_or(0).max(0);
 
-    // TODO: later allow filtering of tags by name search or category
+    // TODO: later, allow filtering of tags by name search or category
     let mut builder = QueryBuilder::new("SELECT * FROM app.tags WHERE created_by = ");
     builder.push_bind(opts.user_id);
     if opts.deleted {

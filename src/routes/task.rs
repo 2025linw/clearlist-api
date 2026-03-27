@@ -11,8 +11,8 @@ use crate::{
     AppState,
     com::model::{
         Task, TaskQuery,
-        db::{DateFilterDB, SortOrder},
-        query::Pagination,
+        db::{DateFilter, SortOrder as SortOrderDB},
+        query::{Pagination, SortBy, SortOrder as SortOrderQuery},
     },
     db::task::{TaskQueryOptions, delete_task, insert_task, query_tasks, select_task, update_task},
     error::Error,
@@ -27,6 +27,8 @@ pub async fn query_handler(
     State(data): State<AppState>,
     Query(TaskQuery {
         pagination: Pagination { page, limit },
+        sort_by,
+        sort_order,
         start_date,
         deadline,
         deleted,
@@ -37,14 +39,24 @@ pub async fn query_handler(
     let offset = (page - 1) * limit;
 
     let start_filter = if let Some(start) = start_date {
-        Some(DateFilterDB::try_from(start).map_err(Error::from)?)
+        Some(DateFilter::try_from(start).map_err(Error::from)?)
     } else {
         None
     };
     let deadline_filter = if let Some(deadline) = deadline {
-        Some(DateFilterDB::try_from(deadline).map_err(Error::from)?)
+        Some(DateFilter::try_from(deadline).map_err(Error::from)?)
     } else {
         None
+    };
+    let sort_order = match sort_by {
+        SortBy::Created => match sort_order {
+            SortOrderQuery::Ascending => SortOrderDB::CreatedAsc,
+            SortOrderQuery::Descending => SortOrderDB::CreatedDesc,
+        },
+        SortBy::Updated => match sort_order {
+            SortOrderQuery::Ascending => SortOrderDB::UpdatedAsc,
+            SortOrderQuery::Descending => SortOrderDB::UpdatedDesc,
+        },
     };
 
     let opts = TaskQueryOptions {
@@ -54,7 +66,7 @@ pub async fn query_handler(
         deleted,
         start_filter,
         deadline_filter,
-        sort_order: SortOrder::default(), // TODO: add sorting query
+        sort_order,
     };
 
     let tasks: Vec<Task> = query_tasks(data.db.pool(), opts)

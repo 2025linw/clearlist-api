@@ -23,7 +23,7 @@ impl Default for Pagination {
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
-pub enum DateFilterQuery {
+pub enum DateFilter {
     Exact(NaiveDate),
 
     BracketInterval(BracketInterval),
@@ -47,4 +47,24 @@ pub type ISO8601Interval = [NaiveDate; 2];
 pub struct PathTaskTag {
     pub task_id: Uuid,
     pub tag_id: Uuid,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub enum SortOrder {
+    #[serde(rename = "asc")]
+    Ascending,
+    #[default]
+    #[serde(rename = "desc")]
+    Descending,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub enum SortBy {
+    #[serde(rename = "created")]
+    Created,
+    #[default]
+    #[serde(rename = "updated")]
+    Updated,
+    // TODO: add deadline
+    // TODO: add start date
 }

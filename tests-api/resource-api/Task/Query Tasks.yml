@@ -7,6 +7,14 @@ http:
   method: GET
   url: "{{base-url}}/api/tasks"
   params:
+    - name: sort
+      value: updated
+      type: query
+      disabled: true
+    - name: order
+      value: desc
+      type: query
+      disabled: true
     - name: limit
       value: "5"
       type: query

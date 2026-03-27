@@ -2,11 +2,14 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-use crate::com::model::util::Start;
+use crate::com::model::{
+    query::{SortBy, SortOrder},
+    util::Start,
+};
 
 use super::{
     Tag,
-    query::{DateFilterQuery, Pagination},
+    query::{DateFilter, Pagination},
 };
 
 #[derive(Debug, PartialEq, Deserialize, Serialize)]
@@ -89,8 +92,15 @@ pub struct TaskQuery {
     #[serde(flatten)]
     pub pagination: Pagination,
 
-    pub start_date: Option<DateFilterQuery>,
-    pub deadline: Option<DateFilterQuery>,
+    #[serde(default)]
+    #[serde(rename = "sort")]
+    pub sort_by: SortBy,
+    #[serde(default)]
+    #[serde(rename = "order")]
+    pub sort_order: SortOrder,
+
+    pub start_date: Option<DateFilter>,
+    pub deadline: Option<DateFilter>,
 
     #[serde(default)]
     pub deleted: bool,

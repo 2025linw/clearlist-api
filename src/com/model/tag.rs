@@ -32,3 +32,5 @@ pub struct TagQuery {
 
     pub deleted: bool,
 }
+// TODO: when adding sort order control to TagQuery, we should return InvalidRequest if user tries to sort by a value that doesn't exist
+// Such as start date or deadline on Tag

@@ -2,7 +2,7 @@ use chrono::NaiveDate;
 
 use crate::com::{
     error::Error,
-    model::query::{BracketInterval, DateFilterQuery},
+    model::query::{BracketInterval, DateFilter as DateFilterQuery},
 };
 
 // TODO: add Exists and NotExists
@@ -35,7 +35,7 @@ pub enum DateBound {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum DateFilterDB {
+pub enum DateFilter {
     On(NaiveDate),
     NotOn(NaiveDate),
     StartRange(DateBound),
@@ -43,20 +43,20 @@ pub enum DateFilterDB {
     Range(DateBound, DateBound),
 }
 
-impl DateFilterDB {
+impl DateFilter {
     pub fn into_sql(self) -> Vec<(SQLCmp, NaiveDate)> {
         match self {
-            DateFilterDB::On(date) => vec![(SQLCmp::Equal, date)],
-            DateFilterDB::NotOn(date) => vec![(SQLCmp::NotEqual, date)],
-            DateFilterDB::StartRange(bound) => match bound {
+            DateFilter::On(date) => vec![(SQLCmp::Equal, date)],
+            DateFilter::NotOn(date) => vec![(SQLCmp::NotEqual, date)],
+            DateFilter::StartRange(bound) => match bound {
                 DateBound::Exclusive(start_date) => vec![(SQLCmp::GreaterThan, start_date)],
                 DateBound::Inclusive(start_date) => vec![(SQLCmp::GreaterThanEqual, start_date)],
             },
-            DateFilterDB::EndRange(bound) => match bound {
+            DateFilter::EndRange(bound) => match bound {
                 DateBound::Exclusive(end_date) => vec![(SQLCmp::LessThan, end_date)],
                 DateBound::Inclusive(end_date) => vec![(SQLCmp::LessThanEqual, end_date)],
             },
-            DateFilterDB::Range(start, end) => match (start, end) {
+            DateFilter::Range(start, end) => match (start, end) {
                 (DateBound::Exclusive(start_date), DateBound::Exclusive(end_date)) => vec![
                     (SQLCmp::GreaterThan, start_date),
                     (SQLCmp::LessThan, end_date),
@@ -78,7 +78,7 @@ impl DateFilterDB {
     }
 }
 
-impl TryFrom<DateFilterQuery> for DateFilterDB {
+impl TryFrom<DateFilterQuery> for DateFilter {
     type Error = Error;
 
     fn try_from(value: DateFilterQuery) -> Result<Self, Error> {
@@ -164,7 +164,7 @@ impl TryFrom<DateFilterQuery> for DateFilterDB {
                     "unable to convert from query filter to db filter".to_string(),
                 )),
             },
-            DateFilterQuery::ISO8601Interval([start_date, end_date]) => Ok(DateFilterDB::Range(
+            DateFilterQuery::ISO8601Interval([start_date, end_date]) => Ok(DateFilter::Range(
                 DateBound::Inclusive(start_date),
                 DateBound::Inclusive(end_date),
             )),
@@ -185,9 +185,9 @@ pub enum SortOrder {
 mod date_filter_db {
     use chrono::{Duration, Local};
 
-    use crate::com::model::query::{BracketInterval, DateFilterQuery};
+    use crate::com::model::query::{BracketInterval, DateFilter as DateFilterQuery};
 
-    use super::{DateBound, DateFilterDB, Error};
+    use super::{DateBound, DateFilter, Error};
 
     #[test]
     fn exact_test() {
@@ -195,10 +195,7 @@ mod date_filter_db {
 
         let query = DateFilterQuery::Exact(today);
 
-        assert_eq!(
-            DateFilterDB::try_from(query).unwrap(),
-            DateFilterDB::On(today)
-        )
+        assert_eq!(DateFilter::try_from(query).unwrap(), DateFilter::On(today))
     }
 
     #[test]
@@ -214,8 +211,8 @@ mod date_filter_db {
         });
 
         assert_eq!(
-            DateFilterDB::try_from(query).unwrap(),
-            DateFilterDB::NotOn(today)
+            DateFilter::try_from(query).unwrap(),
+            DateFilter::NotOn(today)
         )
     }
 
@@ -232,8 +229,8 @@ mod date_filter_db {
         });
 
         assert_eq!(
-            DateFilterDB::try_from(query).unwrap(),
-            DateFilterDB::StartRange(DateBound::Exclusive(today))
+            DateFilter::try_from(query).unwrap(),
+            DateFilter::StartRange(DateBound::Exclusive(today))
         )
     }
 
@@ -250,8 +247,8 @@ mod date_filter_db {
         });
 
         assert_eq!(
-            DateFilterDB::try_from(query).unwrap(),
-            DateFilterDB::StartRange(DateBound::Inclusive(today))
+            DateFilter::try_from(query).unwrap(),
+            DateFilter::StartRange(DateBound::Inclusive(today))
         )
     }
 
@@ -268,8 +265,8 @@ mod date_filter_db {
         });
 
         assert_eq!(
-            DateFilterDB::try_from(query).unwrap(),
-            DateFilterDB::EndRange(DateBound::Exclusive(today))
+            DateFilter::try_from(query).unwrap(),
+            DateFilter::EndRange(DateBound::Exclusive(today))
         )
     }
 
@@ -286,8 +283,8 @@ mod date_filter_db {
         });
 
         assert_eq!(
-            DateFilterDB::try_from(query).unwrap(),
-            DateFilterDB::EndRange(DateBound::Inclusive(today))
+            DateFilter::try_from(query).unwrap(),
+            DateFilter::EndRange(DateBound::Inclusive(today))
         )
     }
 
@@ -305,8 +302,8 @@ mod date_filter_db {
         });
 
         assert_eq!(
-            DateFilterDB::try_from(query).unwrap(),
-            DateFilterDB::Range(
+            DateFilter::try_from(query).unwrap(),
+            DateFilter::Range(
                 DateBound::Exclusive(today),
                 DateBound::Exclusive(today_1week)
             )
@@ -327,8 +324,8 @@ mod date_filter_db {
         });
 
         assert_eq!(
-            DateFilterDB::try_from(query).unwrap(),
-            DateFilterDB::Range(
+            DateFilter::try_from(query).unwrap(),
+            DateFilter::Range(
                 DateBound::Exclusive(today),
                 DateBound::Inclusive(today_1week)
             )
@@ -349,8 +346,8 @@ mod date_filter_db {
         });
 
         assert_eq!(
-            DateFilterDB::try_from(query).unwrap(),
-            DateFilterDB::Range(
+            DateFilter::try_from(query).unwrap(),
+            DateFilter::Range(
                 DateBound::Inclusive(today),
                 DateBound::Exclusive(today_1week)
             )
@@ -371,8 +368,8 @@ mod date_filter_db {
         });
 
         assert_eq!(
-            DateFilterDB::try_from(query).unwrap(),
-            DateFilterDB::Range(
+            DateFilter::try_from(query).unwrap(),
+            DateFilter::Range(
                 DateBound::Inclusive(today),
                 DateBound::Inclusive(today_1week)
             )
@@ -390,7 +387,7 @@ mod date_filter_db {
             lt: None,
             lte: None,
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(res.is_err(), "'ne' should not be used with 'gt'");
         assert!(matches!(res, Err(Error::DateRangeConversion(_))));
 
@@ -401,7 +398,7 @@ mod date_filter_db {
             lt: None,
             lte: None,
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(res.is_err(), "'ne' should not be used with 'gte'");
         assert!(matches!(res, Err(Error::DateRangeConversion(_))));
 
@@ -412,7 +409,7 @@ mod date_filter_db {
             lt: Some(today),
             lte: None,
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(res.is_err(), "'ne' should not be used with 'lt'");
         assert!(matches!(res, Err(Error::DateRangeConversion(_))));
 
@@ -423,7 +420,7 @@ mod date_filter_db {
             lt: None,
             lte: Some(today),
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(res.is_err(), "'ne' should not be used with 'lte'");
         assert!(matches!(res, Err(Error::DateRangeConversion(_))));
 
@@ -434,7 +431,7 @@ mod date_filter_db {
             lt: None,
             lte: Some(today),
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(res.is_err(), "'ne' should not be used with 'lte'");
         assert!(matches!(res, Err(Error::DateRangeConversion(_))));
 
@@ -445,7 +442,7 @@ mod date_filter_db {
             lt: Some(today),
             lte: None,
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(res.is_err(), "'ne' should not be used with 'gt' and 'lt");
         assert!(matches!(res, Err(Error::DateRangeConversion(_))));
 
@@ -456,7 +453,7 @@ mod date_filter_db {
             lt: None,
             lte: Some(today),
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(res.is_err(), "'ne' should not be used with 'gt' and 'lte");
         assert!(matches!(res, Err(Error::DateRangeConversion(_))));
 
@@ -467,7 +464,7 @@ mod date_filter_db {
             lt: Some(today),
             lte: None,
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(res.is_err(), "'ne' should not be used with 'gte' and 'lt");
         assert!(matches!(res, Err(Error::DateRangeConversion(_))));
 
@@ -478,7 +475,7 @@ mod date_filter_db {
             lt: None,
             lte: Some(today),
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(res.is_err(), "'ne' should not be used with 'gte' and 'lte");
         assert!(matches!(res, Err(Error::DateRangeConversion(_))));
     }
@@ -492,7 +489,7 @@ mod date_filter_db {
             lt: None,
             lte: None,
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(res.is_err(), "can not convert empty bracket interval");
         assert!(matches!(res, Err(Error::DateRangeConversion(_))));
     }
@@ -508,7 +505,7 @@ mod date_filter_db {
             lt: None,
             lte: None,
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(
             res.is_err(),
             "'gt' and 'gte' must not be specified together"
@@ -522,7 +519,7 @@ mod date_filter_db {
             lt: Some(today),
             lte: Some(today),
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(
             res.is_err(),
             "'gt' and 'gte' must not be specified together"
@@ -536,7 +533,7 @@ mod date_filter_db {
             lt: Some(today),
             lte: None,
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(
             res.is_err(),
             "'gt', 'gte', 'lt' must not be specified together"
@@ -550,7 +547,7 @@ mod date_filter_db {
             lt: None,
             lte: Some(today),
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(
             res.is_err(),
             "'gt', 'gte', 'lte' must not be specified together"
@@ -564,7 +561,7 @@ mod date_filter_db {
             lt: Some(today),
             lte: Some(today),
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(
             res.is_err(),
             "'gt', 'lt', 'lte' must not be specified together"
@@ -578,7 +575,7 @@ mod date_filter_db {
             lt: Some(today),
             lte: Some(today),
         });
-        let res = DateFilterDB::try_from(query);
+        let res = DateFilter::try_from(query);
         assert!(
             res.is_err(),
             "'gte', 'lt', 'lte' must not be specified together"
@@ -594,8 +591,8 @@ mod date_filter_db {
         let query = DateFilterQuery::ISO8601Interval([today, today_1week]);
 
         assert_eq!(
-            DateFilterDB::try_from(query).unwrap(),
-            DateFilterDB::Range(
+            DateFilter::try_from(query).unwrap(),
+            DateFilter::Range(
                 DateBound::Inclusive(today),
                 DateBound::Inclusive(today_1week)
             )

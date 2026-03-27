@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::{
     com::model::{
         Tag, Task, TaskIntermediate, TaskTag,
-        db::{DateFilterDB, SQLCmp, SortOrder},
+        db::{DateFilter, SQLCmp, SortOrder},
     },
     db::{DEFAULT_LIMIT, MAX_LIMIT, query_as_wrapper},
 };
@@ -20,8 +20,8 @@ pub struct TaskQueryOptions {
     pub offset: Option<i64>,
     pub deleted: bool,
     // TODO: This has weird behavior in different timezones... how to resolve
-    pub start_filter: Option<DateFilterDB>,
-    pub deadline_filter: Option<DateFilterDB>,
+    pub start_filter: Option<DateFilter>,
+    pub deadline_filter: Option<DateFilter>,
     pub sort_order: SortOrder,
 }
 
@@ -584,7 +584,7 @@ mod query_tests {
         let test_date = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
 
         let mut opts = create_default_opts();
-        opts.start_filter = Some(DateFilterDB::On(test_date));
+        opts.start_filter = Some(DateFilter::On(test_date));
 
         let tasks = query_tasks(conn, opts).await.unwrap();
 
@@ -609,7 +609,7 @@ mod query_tests {
         let test_date = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
 
         let mut opts = create_default_opts();
-        opts.start_filter = Some(DateFilterDB::NotOn(test_date));
+        opts.start_filter = Some(DateFilter::NotOn(test_date));
 
         let tasks = query_tasks(conn, opts).await.unwrap();
 
@@ -632,7 +632,7 @@ mod query_tests {
         let test_date = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
 
         let mut opts = create_default_opts();
-        opts.start_filter = Some(DateFilterDB::StartRange(DateBound::Exclusive(test_date)));
+        opts.start_filter = Some(DateFilter::StartRange(DateBound::Exclusive(test_date)));
 
         let tasks = query_tasks(conn, opts).await.unwrap();
 
@@ -657,7 +657,7 @@ mod query_tests {
         let test_date = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
 
         let mut opts = create_default_opts();
-        opts.start_filter = Some(DateFilterDB::StartRange(DateBound::Inclusive(test_date)));
+        opts.start_filter = Some(DateFilter::StartRange(DateBound::Inclusive(test_date)));
 
         let tasks = query_tasks(conn, opts).await.unwrap();
 
@@ -682,7 +682,7 @@ mod query_tests {
         let test_date = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
 
         let mut opts = create_default_opts();
-        opts.start_filter = Some(DateFilterDB::EndRange(DateBound::Exclusive(test_date)));
+        opts.start_filter = Some(DateFilter::EndRange(DateBound::Exclusive(test_date)));
 
         let tasks = query_tasks(conn, opts).await.unwrap();
 
@@ -707,7 +707,7 @@ mod query_tests {
         let test_date = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
 
         let mut opts = create_default_opts();
-        opts.start_filter = Some(DateFilterDB::EndRange(DateBound::Inclusive(test_date)));
+        opts.start_filter = Some(DateFilter::EndRange(DateBound::Inclusive(test_date)));
 
         let tasks = query_tasks(conn, opts).await.unwrap();
 
@@ -733,7 +733,7 @@ mod query_tests {
         let test_date_max = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
 
         let mut opts = create_default_opts();
-        opts.start_filter = Some(DateFilterDB::Range(
+        opts.start_filter = Some(DateFilter::Range(
             DateBound::Exclusive(test_date_min),
             DateBound::Exclusive(test_date_max),
         ));
@@ -764,7 +764,7 @@ mod query_tests {
         let test_date_max = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
 
         let mut opts = create_default_opts();
-        opts.start_filter = Some(DateFilterDB::Range(
+        opts.start_filter = Some(DateFilter::Range(
             DateBound::Inclusive(test_date_min),
             DateBound::Inclusive(test_date_max),
         ));
@@ -795,7 +795,7 @@ mod query_tests {
         let test_date = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
 
         let mut opts = create_default_opts();
-        opts.deadline_filter = Some(DateFilterDB::On(test_date));
+        opts.deadline_filter = Some(DateFilter::On(test_date));
 
         let tasks = query_tasks(conn, opts).await.unwrap();
 
@@ -814,7 +814,7 @@ mod query_tests {
         let test_date = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
 
         let mut opts = create_default_opts();
-        opts.deadline_filter = Some(DateFilterDB::NotOn(test_date));
+        opts.deadline_filter = Some(DateFilter::NotOn(test_date));
 
         let tasks = query_tasks(conn, opts).await.unwrap();
 
@@ -836,7 +836,7 @@ mod query_tests {
         let test_date = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
 
         let mut opts = create_default_opts();
-        opts.deadline_filter = Some(DateFilterDB::StartRange(DateBound::Exclusive(test_date)));
+        opts.deadline_filter = Some(DateFilter::StartRange(DateBound::Exclusive(test_date)));
 
         let tasks = query_tasks(conn, opts).await.unwrap();
 
@@ -857,7 +857,7 @@ mod query_tests {
         let test_date = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
 
         let mut opts = create_default_opts();
-        opts.deadline_filter = Some(DateFilterDB::StartRange(DateBound::Inclusive(test_date)));
+        opts.deadline_filter = Some(DateFilter::StartRange(DateBound::Inclusive(test_date)));
 
         let tasks = query_tasks(conn, opts).await.unwrap();
 
@@ -878,7 +878,7 @@ mod query_tests {
         let test_date = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
 
         let mut opts = create_default_opts();
-        opts.deadline_filter = Some(DateFilterDB::EndRange(DateBound::Exclusive(test_date)));
+        opts.deadline_filter = Some(DateFilter::EndRange(DateBound::Exclusive(test_date)));
 
         let tasks = query_tasks(conn, opts).await.unwrap();
 
@@ -899,7 +899,7 @@ mod query_tests {
         let test_date = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
 
         let mut opts = create_default_opts();
-        opts.deadline_filter = Some(DateFilterDB::EndRange(DateBound::Inclusive(test_date)));
+        opts.deadline_filter = Some(DateFilter::EndRange(DateBound::Inclusive(test_date)));
 
         let tasks = query_tasks(conn, opts).await.unwrap();
 
@@ -921,7 +921,7 @@ mod query_tests {
         let test_date_max = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
 
         let mut opts = create_default_opts();
-        opts.deadline_filter = Some(DateFilterDB::Range(
+        opts.deadline_filter = Some(DateFilter::Range(
             DateBound::Exclusive(test_date_min),
             DateBound::Exclusive(test_date_max),
         ));
@@ -948,7 +948,7 @@ mod query_tests {
         let test_date_max = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
 
         let mut opts = create_default_opts();
-        opts.deadline_filter = Some(DateFilterDB::Range(
+        opts.deadline_filter = Some(DateFilter::Range(
             DateBound::Inclusive(test_date_min),
             DateBound::Inclusive(test_date_max),
         ));
