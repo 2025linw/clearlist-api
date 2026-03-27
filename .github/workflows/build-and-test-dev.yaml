@@ -39,4 +39,4 @@ jobs:
         tags: tag:ci
 
     - name: Run tests
-      run: cargo test --verbose -- --test-threads=1
+      run: cargo test --verbose
