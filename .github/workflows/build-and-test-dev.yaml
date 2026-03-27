@@ -9,6 +9,9 @@ on:
       - 'src/**'
       - 'Cargo.lock'
 
+env:
+  DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -22,7 +25,7 @@ jobs:
       with:
         toolchain: stable
 
-    - name: Build
+    - name: Build dev binary
       run: cargo build
 
     - name: Run clippy
