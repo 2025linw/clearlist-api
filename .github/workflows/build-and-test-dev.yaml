@@ -23,10 +23,10 @@ jobs:
         toolchain: stable
 
     - name: Build
-      run: cargo build --bin clearlist-api
+      run: cargo build
 
     - name: Run clippy
-      run: cargo clippy --bin clearlist-api
+      run: cargo clippy
 
     - name: Run tests
-      run: cargo test --bin clearlist-api --verbose
+      run: cargo test --verbose
