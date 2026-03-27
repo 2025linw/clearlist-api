@@ -360,8 +360,6 @@ mod query_tests {
     }
 
     async fn setup() -> PgPool {
-        dotenvy::from_filename(".env.testing").ok();
-
         PgPool::connect(get_connect_url()).await.unwrap()
     }
 

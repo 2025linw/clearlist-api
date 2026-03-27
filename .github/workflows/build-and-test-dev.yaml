@@ -9,9 +9,6 @@ on:
       - 'src/**'
       - 'Cargo.lock'
 
-env:
-  DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
-
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -39,4 +36,6 @@ jobs:
         tags: tag:ci
 
     - name: Run tests
+      env:
+        DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
       run: cargo test --verbose
