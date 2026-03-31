@@ -13,7 +13,7 @@ use super::{
 };
 
 #[derive(Debug, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Default, PartialEq))]
+#[cfg_attr(test, derive(Default))]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
     // primary key - not specifiable by user

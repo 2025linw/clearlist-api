@@ -5,7 +5,7 @@ use sqlx::FromRow;
 use super::query::Pagination;
 
 #[derive(Debug, Clone, Deserialize, Serialize, FromRow)]
-#[cfg_attr(test, derive(Default, PartialEq))]
+#[cfg_attr(test, derive(Default))]
 pub struct Tag {
     // primary key - not specifiable by user
     #[serde(skip_deserializing)]

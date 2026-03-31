@@ -151,7 +151,7 @@ async fn insert_task_inner(tx: &mut PgConnection, user_id: Uuid, task: Task) -> 
     .await?;
 
     if !task.tags.is_empty() {
-        update_tag_helper(tx, task_id, task.tags).await?;
+        update_tag_helper(tx.as_mut(), task_id, task.tags).await?;
     }
 
     Ok(task_id)
@@ -242,7 +242,7 @@ async fn update_task_inner(
     };
 
     if !task.tags.is_empty() {
-        update_tag_helper(tx, task_id, task.tags.clone()).await?;
+        update_tag_helper(tx.as_mut(), task_id, task.tags.clone()).await?;
     }
 
     Ok(Some(task.into()))
@@ -348,7 +348,7 @@ pub async fn update_tag_helper(tx: &mut PgConnection, task_id: Uuid, tags: Vec<T
         separated.push(")");
     }
 
-    let num_rows = builder.build().execute(tx.as_mut()).await?.rows_affected() as usize;
+    let num_rows = builder.build().execute(tx).await?.rows_affected() as usize;
     if num_rows != tags.len() {
         return Err(Error::Operation(format!(
             "expected: {} tags; got: {}",
@@ -532,7 +532,7 @@ mod query_tests {
         .bind(deleted_at)
         .bind(created_at)
         .bind(updated_at)
-        .execute(tx.as_mut())
+        .execute(tx)
         .await.ok();
     }
 
@@ -692,7 +692,7 @@ mod query_tests {
         create_test_data(&mut tx).await;
 
         let opts = create_default_opts();
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         println!("{:#?}", tasks);
@@ -717,7 +717,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.sort_order = SortOrder::UpdatedAsc;
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         // default sort is updated_at descending
@@ -740,7 +740,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.sort_order = SortOrder::CreatedDesc;
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         // default sort is updated_at descending
@@ -763,7 +763,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.sort_order = SortOrder::CreatedAsc;
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         // default sort is updated_at descending
@@ -787,7 +787,7 @@ mod query_tests {
             let mut opts = create_default_opts();
             opts.limit = Some(i);
 
-            let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+            let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
             assert!(!tasks.is_empty(), "must have data to test on");
 
             for task in &tasks {
@@ -808,7 +808,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.limit = Some(0);
 
-        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        query_tasks_inner(&mut tx, opts).await.unwrap();
     }
 
     #[test]
@@ -822,7 +822,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.limit = Some(i64::MAX);
 
-        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        query_tasks_inner(&mut tx, opts).await.unwrap();
     }
 
     #[test]
@@ -836,17 +836,17 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.limit = Some(-1);
 
-        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        query_tasks_inner(&mut tx, opts).await.unwrap();
 
         let mut opts = create_default_opts();
         opts.limit = Some(-50);
 
-        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        query_tasks_inner(&mut tx, opts).await.unwrap();
 
         let mut opts = create_default_opts();
         opts.limit = Some(i64::MIN);
 
-        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        query_tasks_inner(&mut tx, opts).await.unwrap();
     }
 
     #[test]
@@ -868,7 +868,7 @@ mod query_tests {
             opts.limit = Some(limit);
             opts.offset = Some(i * limit);
 
-            let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+            let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
             if first {
                 assert!(!tasks.is_empty(), "must have data to test on");
                 first = false;
@@ -895,7 +895,7 @@ mod query_tests {
         opts.limit = Some(limit);
         opts.offset = Some(i * limit);
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
 
         assert!(tasks.is_empty());
     }
@@ -911,7 +911,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.offset = Some(i64::MAX);
 
-        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        query_tasks_inner(&mut tx, opts).await.unwrap();
     }
 
     #[test]
@@ -925,17 +925,17 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.offset = Some(-1);
 
-        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        query_tasks_inner(&mut tx, opts).await.unwrap();
 
         let mut opts = create_default_opts();
         opts.offset = Some(-50);
 
-        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        query_tasks_inner(&mut tx, opts).await.unwrap();
 
         let mut opts = create_default_opts();
         opts.offset = Some(i64::MIN);
 
-        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        query_tasks_inner(&mut tx, opts).await.unwrap();
     }
 
     #[test]
@@ -949,7 +949,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.offset = Some(20);
 
-        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        query_tasks_inner(&mut tx, opts).await.unwrap();
     }
 
     // TODO: add sort order to completed
@@ -964,7 +964,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.completed = true;
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -984,7 +984,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.deleted = true;
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1005,7 +1005,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.start_filter = Some(DateFilter::On(test_date));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1034,7 +1034,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.start_filter = Some(DateFilter::NotOn(test_date));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1063,7 +1063,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.start_filter = Some(DateFilter::StartRange(DateBound::Exclusive(test_date)));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1092,7 +1092,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.start_filter = Some(DateFilter::StartRange(DateBound::Inclusive(test_date)));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1121,7 +1121,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.start_filter = Some(DateFilter::EndRange(DateBound::Exclusive(test_date)));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1150,7 +1150,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.start_filter = Some(DateFilter::EndRange(DateBound::Inclusive(test_date)));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1183,7 +1183,7 @@ mod query_tests {
             DateBound::Exclusive(test_date_max),
         ));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1218,7 +1218,7 @@ mod query_tests {
             DateBound::Inclusive(test_date_max),
         ));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1255,7 +1255,7 @@ mod query_tests {
             DateBound::Exclusive(test_date_max),
         ));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1279,7 +1279,7 @@ mod query_tests {
             DateBound::Inclusive(test_date_max),
         ));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1310,7 +1310,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.deadline_filter = Some(DateFilter::On(test_date));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1334,7 +1334,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.deadline_filter = Some(DateFilter::NotOn(test_date));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1361,7 +1361,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.deadline_filter = Some(DateFilter::StartRange(DateBound::Exclusive(test_date)));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1387,7 +1387,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.deadline_filter = Some(DateFilter::StartRange(DateBound::Inclusive(test_date)));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1413,7 +1413,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.deadline_filter = Some(DateFilter::EndRange(DateBound::Exclusive(test_date)));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1439,7 +1439,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.deadline_filter = Some(DateFilter::EndRange(DateBound::Inclusive(test_date)));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1469,7 +1469,7 @@ mod query_tests {
             DateBound::Exclusive(test_date_max),
         ));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1501,7 +1501,7 @@ mod query_tests {
             DateBound::Inclusive(test_date_max),
         ));
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
@@ -1524,7 +1524,7 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.user_id = Uuid::new_v4();
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        let tasks = query_tasks_inner(&mut tx, opts).await.unwrap();
         assert!(tasks.is_empty());
     }
 
@@ -1550,7 +1550,7 @@ mod query_tests {
             DateBound::Inclusive(date_max),
         ));
 
-        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        query_tasks_inner(&mut tx, opts).await.unwrap();
     }
 
     #[test]
@@ -1578,7 +1578,7 @@ mod query_tests {
         ));
         opts.sort_order = SortOrder::CreatedAsc;
 
-        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        query_tasks_inner(&mut tx, opts).await.unwrap();
     }
 }
 
