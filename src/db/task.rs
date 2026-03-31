@@ -151,7 +151,7 @@ async fn insert_task_inner(tx: &mut PgConnection, user_id: Uuid, task: Task) -> 
     .await?;
 
     if !task.tags.is_empty() {
-        update_tag_helper(tx.as_mut(), task_id, task.tags).await?;
+        update_tag_helper(tx, task_id, task.tags).await?;
     }
 
     Ok(task_id)
@@ -242,7 +242,7 @@ async fn update_task_inner(
     };
 
     if !task.tags.is_empty() {
-        update_tag_helper(tx.as_mut(), task_id, task.tags.clone()).await?;
+        update_tag_helper(tx, task_id, task.tags.clone()).await?;
     }
 
     Ok(Some(task.into()))
