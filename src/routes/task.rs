@@ -12,9 +12,12 @@ use crate::{
     com::model::{
         Task, TaskQuery,
         db::{DateFilter, SortOrder as SortOrderDB},
-        query::{Pagination, SortBy, SortOrder as SortOrderQuery},
+        query::{Completed, Pagination, SortBy, SortOrder as SortOrderQuery},
     },
-    db::task::{TaskQueryOptions, delete_task, insert_task, query_tasks, select_task, update_task},
+    db::task::{
+        TaskQueryOptions, complete_task, delete_task, insert_task, query_tasks, select_task,
+        update_task,
+    },
     error::Error,
     response::{ERR, ErrorResponse, OK, Response, SUCCESS},
     util::Session,
@@ -31,6 +34,7 @@ pub async fn query_handler(
         sort_order,
         start_date,
         deadline,
+        completed,
         deleted,
     }): Query<TaskQuery>,
 ) -> Result<Response, ErrorResponse> {
@@ -63,6 +67,7 @@ pub async fn query_handler(
         user_id: session.user_id,
         limit: Some(limit),
         offset: Some(offset),
+        completed,
         deleted,
         start_filter,
         deadline_filter,
@@ -147,6 +152,24 @@ pub async fn delete_handler(
     }
 }
 
+pub async fn complete_handler(
+    session: Session,
+    State(data): State<AppState>,
+    Path(task_id): Path<Uuid>,
+    Json(Completed { completed }): Json<Completed>,
+) -> Result<Response, ErrorResponse> {
+    if let Some(()) = complete_task(data.db.pool(), task_id, session.user_id, completed)
+        .await
+        .map_err(Error::from)?
+    {
+        Ok(Response::new(StatusCode::NO_CONTENT))
+    } else {
+        Err(ErrorResponse::new(StatusCode::NOT_FOUND)
+            .status(ERR)
+            .msg(NOT_FOUND))
+    }
+}
+
 pub mod tag {
     use axum::{
         Json,
@@ -158,7 +181,7 @@ pub mod tag {
 
     use crate::{
         AppState,
-        com::model::query::PathTaskTag,
+        com::model::query::TaskTag,
         db::{is_task_exists, task::tag},
         error::Error,
         response::{ErrorResponse, OK, Response},
@@ -191,7 +214,7 @@ pub mod tag {
     pub async fn create_handler(
         session: Session,
         State(data): State<AppState>,
-        Path(PathTaskTag { task_id, tag_id }): Path<PathTaskTag>,
+        Path(TaskTag { task_id, tag_id }): Path<TaskTag>,
     ) -> Result<Response, ErrorResponse> {
         if !is_task_exists(data.db.pool(), task_id, session.user_id)
             .await
@@ -236,7 +259,7 @@ pub mod tag {
     pub async fn delete_handler(
         session: Session,
         State(data): State<AppState>,
-        Path(PathTaskTag { task_id, tag_id }): Path<PathTaskTag>,
+        Path(TaskTag { task_id, tag_id }): Path<TaskTag>,
     ) -> Result<Response, ErrorResponse> {
         if !is_task_exists(data.db.pool(), task_id, session.user_id)
             .await

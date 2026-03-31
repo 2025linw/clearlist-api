@@ -44,18 +44,9 @@ pub struct BracketInterval {
 pub type ISO8601Interval = [NaiveDate; 2];
 
 #[derive(Debug, Deserialize)]
-pub struct PathTaskTag {
+pub struct TaskTag {
     pub task_id: Uuid,
     pub tag_id: Uuid,
-}
-
-#[derive(Debug, Default, Deserialize)]
-pub enum SortOrder {
-    #[serde(rename = "asc")]
-    Ascending,
-    #[default]
-    #[serde(rename = "desc")]
-    Descending,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -67,4 +58,18 @@ pub enum SortBy {
     Updated,
     // TODO: add deadline
     // TODO: add start date
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub enum SortOrder {
+    #[serde(rename = "asc")]
+    Ascending,
+    #[default]
+    #[serde(rename = "desc")]
+    Descending,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Completed {
+    pub completed: bool,
 }

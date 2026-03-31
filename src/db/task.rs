@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     com::model::{
-        Tag, Task, TaskIntermediate, TaskTag,
+        Tag, Task, TaskIntermediate, TaskTagIntermediate,
         db::{DateFilter, SQLCmp, SortOrder},
     },
     db::{DEFAULT_LIMIT, MAX_LIMIT, query_as_wrapper},
@@ -18,6 +18,7 @@ pub struct TaskQueryOptions {
 
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub completed: bool,
     pub deleted: bool,
     // TODO: This has weird behavior in different timezones... how to resolve
     pub start_filter: Option<DateFilter>,
@@ -39,6 +40,11 @@ async fn query_tasks_inner(tx: &mut PgConnection, opts: TaskQueryOptions) -> Res
 
     let mut builder = QueryBuilder::new("SELECT * FROM app.tasks WHERE created_by = ");
     builder.push_bind(opts.user_id);
+    if opts.completed {
+        builder.push(" AND completed_at IS NOT NULL");
+    } else {
+        builder.push(" AND completed_at IS NULL");
+    }
     if opts.deleted {
         builder.push(" AND deleted_at IS NOT NULL");
     } else {
@@ -94,7 +100,7 @@ async fn query_tasks_inner(tx: &mut PgConnection, opts: TaskQueryOptions) -> Res
 
     // Get tags
     let task_ids: Vec<Uuid> = tasks.iter().map(|task| task.id).collect();
-    let tags = query_as_wrapper::<TaskTag>(
+    let tags = query_as_wrapper::<TaskTagIntermediate>(
         "SELECT tt.task_id, tg.*
             FROM app.task_tags tt
             LEFT JOIN app.tags tg ON tt.tag_id = tg.id
@@ -105,7 +111,7 @@ async fn query_tasks_inner(tx: &mut PgConnection, opts: TaskQueryOptions) -> Res
     .await?;
 
     let mut task_tag_map: HashMap<Uuid, Vec<Tag>> = HashMap::new();
-    for TaskTag { task_id, tag } in tags {
+    for TaskTagIntermediate { task_id, tag } in tags {
         if let Entry::Vacant(e) = task_tag_map.entry(task_id) {
             e.insert(vec![tag]);
         } else {
@@ -269,6 +275,62 @@ async fn delete_task_inner(
         == 0
     {
         return Ok(None);
+    }
+
+    Ok(Some(()))
+}
+
+pub async fn complete_task(
+    conn: PgPool,
+    task_id: Uuid,
+    user_id: Uuid,
+    completed: bool,
+) -> Result<Option<()>> {
+    let mut tx = conn.begin().await?;
+    let res = complete_task_inner(&mut tx, task_id, user_id, completed).await?;
+    tx.commit().await?;
+
+    Ok(res)
+}
+
+pub async fn complete_task_inner(
+    tx: &mut PgConnection,
+    task_id: Uuid,
+    user_id: Uuid,
+    completed: bool,
+) -> Result<Option<()>> {
+    if completed {
+        if sqlx::query(
+            "UPDATE app.tasks SET
+            (updated_at, completed_at) =
+            (CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
+        )
+        .bind(task_id)
+        .bind(user_id)
+        .execute(tx.as_mut())
+        .await?
+        .rows_affected()
+            == 0
+        {
+            return Ok(None);
+        }
+    } else {
+        if sqlx::query(
+            "UPDATE app.tasks SET
+            (updated_at, completed_at) =
+            (CURRENT_TIMESTAMP, NULL)
+            WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
+        )
+        .bind(task_id)
+        .bind(user_id)
+        .execute(tx.as_mut())
+        .await?
+        .rows_affected()
+            == 0
+        {
+            return Ok(None);
+        }
     }
 
     Ok(Some(()))
@@ -441,6 +503,7 @@ mod query_tests {
             user_id: Uuid::nil(),
             limit: None,
             offset: None,
+            completed: false,
             deleted: false,
             start_filter: None,
             deadline_filter: None,
@@ -451,13 +514,14 @@ mod query_tests {
     async fn insert_test_task(
         tx: &mut PgConnection,
         task: Task,
+        completed_at: Option<DateTime<Utc>>,
         deleted_at: Option<DateTime<Utc>>,
         created_at: DateTime<Utc>,
         updated_at: DateTime<Utc>,
     ) {
         sqlx::query(
-            "INSERT INTO app.tasks (title, notes, start_on, start_at, deadline, created_by, deleted_at, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            "INSERT INTO app.tasks (title, notes, start_on, start_at, deadline, created_by, completed_at, deleted_at, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(task.title)
         .bind(task.notes)
@@ -465,6 +529,7 @@ mod query_tests {
         .bind(task.start.as_ref().map(|s| s.as_at()))
         .bind(task.deadline)
         .bind(Uuid::nil())
+        .bind(completed_at)
         .bind(deleted_at)
         .bind(created_at)
         .bind(updated_at)
@@ -488,6 +553,7 @@ mod query_tests {
                 tx,
                 task,
                 None,
+                None,
                 base_time + Duration::from_secs(i),
                 base_time + Duration::from_hours(1) + Duration::from_secs(60 - i),
             )
@@ -510,6 +576,7 @@ mod query_tests {
             insert_test_task(
                 tx,
                 task,
+                None,
                 None,
                 base_time + Duration::from_secs(i as u64),
                 base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
@@ -537,6 +604,7 @@ mod query_tests {
                 tx,
                 task,
                 None,
+                None,
                 base_time + Duration::from_secs(i as u64),
                 base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
             )
@@ -560,16 +628,17 @@ mod query_tests {
                 tx,
                 task,
                 None,
+                None,
                 base_time + Duration::from_secs(i as u64),
                 base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
             )
             .await;
         }
 
-        // Created deleted tasks
-        let base_time = Utc::now() + Duration::from_hours(3);
+        // Create completed tasks
+        let base_time = Utc::now() + Duration::from_hours(4);
         for i in 1..=10 {
-            let title = format!("Test Task Dl{}", i);
+            let title = format!("Test Task Comp{}", i);
             let date = NaiveDate::from_ymd_opt(DATE_YEAR, DELETED_MONTH, i).unwrap();
 
             let task = Task {
@@ -582,6 +651,31 @@ mod query_tests {
             insert_test_task(
                 tx,
                 task,
+                Some(base_time + Duration::from_hours(2) + Duration::from_secs(i as u64)),
+                None,
+                base_time + Duration::from_secs(i as u64),
+                base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
+            )
+            .await;
+        }
+
+        // Create deleted tasks
+        let base_time = Utc::now() + Duration::from_hours(5);
+        for i in 1..=10 {
+            let title = format!("Test Task Del{}", i);
+            let date = NaiveDate::from_ymd_opt(DATE_YEAR, DELETED_MONTH, i).unwrap();
+
+            let task = Task {
+                title: title.clone(),
+                notes: Some(format!("Notes '{}'", title)),
+                deadline: Some(date),
+                ..Default::default()
+            };
+
+            insert_test_task(
+                tx,
+                task,
+                None,
                 Some(base_time + Duration::from_hours(2) + Duration::from_secs(i as u64)),
                 base_time + Duration::from_secs(i as u64),
                 base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
@@ -813,9 +907,29 @@ mod query_tests {
         query_tasks_inner(tx.as_mut(), opts).await.unwrap();
     }
 
+    // TODO: add sort order to completed
+    #[test]
+    async fn filter_completed() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
+
+        let mut opts = create_default_opts();
+        opts.completed = true;
+
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
+
+        for task in &tasks {
+            assert!(task.completed_at.is_some());
+        }
+    }
+
     // TODO: add sort order to deleted
     #[test]
-    async fn get_deleted() {
+    async fn filter_deleted() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 

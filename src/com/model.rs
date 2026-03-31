@@ -6,4 +6,4 @@ mod tag;
 mod task;
 
 pub use tag::{Tag, TagQuery};
-pub use task::{Task, TaskIntermediate, TaskQuery, TaskTag};
+pub use task::{Task, TaskIntermediate, TaskQuery, TaskTagIntermediate};

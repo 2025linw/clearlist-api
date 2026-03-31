@@ -20,7 +20,7 @@ pub struct Task {
     #[serde(skip_deserializing)]
     pub id: uuid::Uuid,
 
-    // values that are selected by user
+    // values that are specified by user
     #[serde(default)]
     pub title: String,
     pub notes: Option<String>,
@@ -29,7 +29,9 @@ pub struct Task {
     #[serde(default)]
     pub tags: Vec<Tag>,
 
-    // values associated with other functions/actions
+    // values associated with other functions/actions (not directly specifiable)
+    #[serde(skip_deserializing)]
+    pub completed_at: Option<chrono::DateTime<Utc>>,
     #[serde(skip_deserializing)]
     pub deleted_at: Option<chrono::DateTime<Utc>>,
 
@@ -54,6 +56,7 @@ pub struct TaskIntermediate {
     pub start_at: Option<chrono::DateTime<Utc>>,
     pub deadline: Option<chrono::NaiveDate>,
 
+    pub completed_at: Option<chrono::DateTime<Utc>>,
     pub deleted_at: Option<chrono::DateTime<Utc>>,
 
     pub created_at: chrono::DateTime<Utc>,
@@ -82,6 +85,7 @@ impl From<TaskIntermediate> for Task {
             notes: value.notes,
             start,
             deadline: value.deadline,
+            completed_at: value.completed_at,
             deleted_at: value.deleted_at,
             created_at: value.created_at,
             updated_at: value.updated_at,
@@ -107,11 +111,13 @@ pub struct TaskQuery {
     pub deadline: Option<DateFilter>,
 
     #[serde(default)]
+    pub completed: bool,
+    #[serde(default)]
     pub deleted: bool,
 }
 
 #[derive(Debug, FromRow)]
-pub struct TaskTag {
+pub struct TaskTagIntermediate {
     pub task_id: uuid::Uuid,
 
     #[sqlx(flatten)]

@@ -8,7 +8,7 @@ use axum::{
     handler::Handler,
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post, put},
+    routing::{get, patch, post, put},
 };
 use governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
 use serde_json::json;
@@ -57,6 +57,7 @@ pub fn create_api_router() -> Router<AppState> {
         task::delete_handler,
         task::query_handler,
     )
+    .route("/{task_id}/complete", patch(task::complete_handler))
     .nest(
         "/{task_id}/tags",
         Router::new()

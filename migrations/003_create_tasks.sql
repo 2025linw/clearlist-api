@@ -8,6 +8,7 @@ CREATE TABLE app.tasks (
     start_at timestamp with time zone,
     deadline date,
 
+    completed_at timestamp with time zone,
     deleted_at timestamp with time zone,
 
     created_at timestamp with time zone NOT NULL default CURRENT_TIMESTAMP,
