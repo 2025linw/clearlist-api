@@ -1586,7 +1586,7 @@ mod query_tests {
 mod create_tests {
     use std::{env, path::Path};
 
-    use chrono::{SubsecRound, Utc};
+    use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, SubsecRound, Utc};
     use sqlx::{Connection, PgConnection, PgPool, migrate::Migrator, postgres::PgPoolOptions};
     use tokio::{sync::OnceCell, test};
     use uuid::Uuid;
@@ -1652,11 +1652,13 @@ mod create_tests {
         assert!(task.is_some());
 
         let task = task.unwrap();
+
         assert_eq!(task.title, "");
         assert!(task.notes.is_none());
         assert!(task.start.is_none());
         assert!(task.deadline.is_none());
         assert!(task.tags.is_empty());
+
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
     }
@@ -1679,11 +1681,13 @@ mod create_tests {
         assert!(task.is_some());
 
         let task = task.unwrap();
+
         assert_eq!(task.title, "This is a test title for with_title() test");
         assert!(task.notes.is_none());
         assert!(task.start.is_none());
         assert!(task.deadline.is_none());
         assert!(task.tags.is_empty());
+
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
     }
@@ -1706,6 +1710,7 @@ mod create_tests {
         assert!(task.is_some());
 
         let task = task.unwrap();
+
         assert_eq!(task.title, "");
         assert!(task.notes.is_some());
         assert_eq!(
@@ -1715,6 +1720,7 @@ mod create_tests {
         assert!(task.start.is_none());
         assert!(task.deadline.is_none());
         assert!(task.tags.is_empty());
+
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
     }
@@ -1737,12 +1743,14 @@ mod create_tests {
         assert!(task.is_some());
 
         let task = task.unwrap();
+
         assert_eq!(task.title, "");
         assert!(task.notes.is_none());
         assert!(task.start.is_some());
         assert_eq!(task.start.unwrap(), Start::On(date));
         assert!(task.deadline.is_none());
         assert!(task.tags.is_empty());
+
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
     }
@@ -1765,6 +1773,7 @@ mod create_tests {
         assert!(task.is_some());
 
         let task = task.unwrap();
+
         assert_eq!(task.title, "");
         assert!(task.notes.is_none());
         assert!(task.start.is_some());
@@ -1774,6 +1783,7 @@ mod create_tests {
         );
         assert!(task.deadline.is_none());
         assert!(task.tags.is_empty());
+
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
     }
@@ -1796,39 +1806,102 @@ mod create_tests {
         assert!(task.is_some());
 
         let task = task.unwrap();
+
         assert_eq!(task.title, "");
         assert!(task.notes.is_none());
         assert!(task.start.is_none());
         assert!(task.deadline.is_some());
         assert_eq!(task.deadline.unwrap(), date);
         assert!(task.tags.is_empty());
+
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
     }
 
     #[test]
     async fn combination_1() {
-        todo!()
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let title = "Homework 1".to_string();
+        let notes =
+            "Introduction assignment to warm up to the content being taught in class".to_string();
+        let start = NaiveDate::from_ymd_opt(2027, 9, 16).unwrap();
+        let deadline = start + Duration::weeks(2);
+
+        let mut task = Task::default();
+        task.title = title.clone();
+        task.notes = Some(notes.clone());
+        task.start = Some(Start::On(start.clone()));
+        task.deadline = Some(deadline.clone());
+
+        let task_id = insert_task_inner(&mut tx, Uuid::nil(), task).await.unwrap();
+
+        let task = select_task_inner(&mut tx, task_id, Uuid::nil())
+            .await
+            .unwrap();
+        assert!(task.is_some());
+
+        let task = task.unwrap();
+
+        assert_eq!(task.title, "Homework 1");
+        assert!(task.notes.is_some());
+        assert_eq!(task.notes.unwrap(), notes);
+        assert!(task.start.is_some());
+        assert_eq!(task.start.unwrap(), Start::On(start));
+        assert!(task.deadline.is_some());
+        assert_eq!(task.deadline.unwrap(), deadline);
+        assert!(task.tags.is_empty());
+
+        assert!(task.deleted_at.is_none());
+        assert_eq!(task.created_by, Uuid::nil());
     }
 
     #[test]
     async fn combination_2() {
-        todo!()
-    }
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-    #[test]
-    async fn combination_3() {
-        todo!()
-    }
+        let title = "Study for Exam 1".to_string();
+        let notes =
+            "Introduction assignment to warm up to the content being taught in class".to_string();
+        let start_date = NaiveDate::from_ymd_opt(2027, 10, 5).unwrap();
+        let start_time = NaiveTime::from_hms_opt(10, 0, 0).unwrap();
+        let start_datetime = NaiveDateTime::new(start_date, start_time)
+            .and_local_timezone(*Local::now().offset())
+            .unwrap()
+            .to_utc();
+        let deadline = start_date + Duration::days(4);
 
-    #[test]
-    async fn combination_4() {
-        todo!()
-    }
+        let mut task = Task::default();
+        task.title = title.clone();
+        task.notes = Some(notes.clone());
+        task.start = Some(Start::At(start_datetime));
+        task.deadline = Some(deadline.clone());
 
-    #[test]
-    async fn combination_5() {
-        todo!()
+        let task_id = insert_task_inner(&mut tx, Uuid::nil(), task).await.unwrap();
+
+        let task = select_task_inner(&mut tx, task_id, Uuid::nil())
+            .await
+            .unwrap();
+        assert!(task.is_some());
+
+        let task = task.unwrap();
+
+        assert_eq!(task.title, "Study for Exam 1");
+        assert!(task.notes.is_some());
+        assert_eq!(task.notes.unwrap(), notes);
+        assert!(task.start.is_some());
+        assert_eq!(
+            task.start.unwrap(),
+            Start::At(start_datetime.trunc_subsecs(PG_SUBSEC_PREC))
+        );
+        assert!(task.deadline.is_some());
+        assert_eq!(task.deadline.unwrap(), deadline);
+        assert!(task.tags.is_empty());
+
+        assert!(task.deleted_at.is_none());
+        assert_eq!(task.created_by, Uuid::nil());
     }
 }
 
