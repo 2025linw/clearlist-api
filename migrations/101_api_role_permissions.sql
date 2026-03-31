@@ -14,3 +14,13 @@ GRANT SELECT ON
 auth.session,
 auth.user
 TO cl_rw;
+
+-- Allow auth user to 'auth' schema and data manipulation to required tables
+GRANT USAGE ON SCHEMA auth to cl_auth;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+auth.user,
+auth.account,
+auth.verification,
+auth.session
+TO cl_auth;
