@@ -808,8 +808,21 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.limit = Some(0);
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
-        assert!(!tasks.is_empty(), "must have data to test on");
+        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+    }
+
+    #[test]
+    async fn limit_absurdly_large() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
+
+        let mut opts = create_default_opts();
+        opts.limit = Some(i64::MAX);
+
+        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
     }
 
     #[test]
@@ -821,10 +834,19 @@ mod query_tests {
         create_test_data(&mut tx).await;
 
         let mut opts = create_default_opts();
-        opts.limit = Some(-10);
+        opts.limit = Some(-1);
 
-        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
-        assert!(!tasks.is_empty(), "must have data to test on");
+        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+
+        let mut opts = create_default_opts();
+        opts.limit = Some(-50);
+
+        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+
+        let mut opts = create_default_opts();
+        opts.limit = Some(i64::MIN);
+
+        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
     }
 
     #[test]
@@ -879,6 +901,20 @@ mod query_tests {
     }
 
     #[test]
+    async fn offset_absurdly_large() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
+
+        let mut opts = create_default_opts();
+        opts.offset = Some(i64::MAX);
+
+        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+    }
+
+    #[test]
     async fn offset_negative() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
@@ -887,7 +923,17 @@ mod query_tests {
         create_test_data(&mut tx).await;
 
         let mut opts = create_default_opts();
-        opts.offset = Some(-10);
+        opts.offset = Some(-1);
+
+        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+
+        let mut opts = create_default_opts();
+        opts.offset = Some(-50);
+
+        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+
+        let mut opts = create_default_opts();
+        opts.offset = Some(i64::MIN);
 
         query_tasks_inner(tx.as_mut(), opts).await.unwrap();
     }
@@ -1192,6 +1238,66 @@ mod query_tests {
     }
 
     #[test]
+    async fn filter_start_between_combos() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date_min = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 3).unwrap();
+        let test_date_max = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 6).unwrap();
+
+        // test exclusive max
+        let mut opts = create_default_opts();
+        opts.start_filter = Some(DateFilter::Range(
+            DateBound::Inclusive(test_date_min),
+            DateBound::Exclusive(test_date_max),
+        ));
+
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
+
+        for task in &tasks {
+            // no deleted tasks
+            assert!(task.deleted_at.is_none());
+
+            assert!(matches!(task.start, Some(_)));
+
+            match task.start.as_ref().unwrap() {
+                Start::On(date) => assert!(date >= &test_date_min && date < &test_date_max),
+                Start::At(datetime) => assert!(
+                    datetime.date_naive() >= test_date_min && datetime.date_naive() < test_date_max
+                ),
+            }
+        }
+
+        // text exclusive min
+        let mut opts = create_default_opts();
+        opts.start_filter = Some(DateFilter::Range(
+            DateBound::Exclusive(test_date_min),
+            DateBound::Inclusive(test_date_max),
+        ));
+
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
+
+        for task in &tasks {
+            // no deleted tasks
+            assert!(task.deleted_at.is_none());
+
+            assert!(matches!(task.start, Some(_)));
+
+            match task.start.as_ref().unwrap() {
+                Start::On(date) => assert!(date > &test_date_min && date <= &test_date_max),
+                Start::At(datetime) => assert!(
+                    datetime.date_naive() > test_date_min && datetime.date_naive() <= test_date_max
+                ),
+            }
+        }
+    }
+
+    #[test]
     async fn filter_deadline_on() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
@@ -1423,29 +1529,56 @@ mod query_tests {
     }
 
     #[test]
-    async fn combination_1() {
-        // Get all todos that start between 2027-
-        todo!()
+    async fn full_combination() {
+        // Use all filters
+
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let date_mix = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 1).unwrap();
+        let date_max = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 7).unwrap();
+
+        let mut opts = create_default_opts();
+        opts.limit = Some(5);
+        opts.offset = Some(2);
+        opts.start_filter = Some(DateFilter::Range(
+            DateBound::Inclusive(date_mix),
+            DateBound::Inclusive(date_max),
+        ));
+        opts.deadline_filter = Some(DateFilter::Range(
+            DateBound::Inclusive(date_mix),
+            DateBound::Inclusive(date_max),
+        ));
+
+        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
     }
 
     #[test]
-    async fn combination_2() {
-        todo!()
-    }
+    async fn full_combination_nondefault() {
+        // Use all filters that are not the default option
 
-    #[test]
-    async fn combination_3() {
-        todo!()
-    }
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-    #[test]
-    async fn combination_4() {
-        todo!()
-    }
+        let date_mix = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 1).unwrap();
+        let date_max = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 7).unwrap();
 
-    #[test]
-    async fn combination_5() {
-        todo!()
+        let mut opts = create_default_opts();
+        opts.limit = Some(5);
+        opts.offset = Some(2);
+        opts.completed = true;
+        opts.deleted = true;
+        opts.start_filter = Some(DateFilter::Range(
+            DateBound::Inclusive(date_mix),
+            DateBound::Inclusive(date_max),
+        ));
+        opts.deadline_filter = Some(DateFilter::Range(
+            DateBound::Inclusive(date_mix),
+            DateBound::Inclusive(date_max),
+        ));
+        opts.sort_order = SortOrder::CreatedAsc;
+
+        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
     }
 }
 
