@@ -8,6 +8,8 @@ on:
       - '.github/workflows/build-and-test-dev.yaml'
       - 'src/**'
       - 'Cargo.lock'
+      - './setup_dev.sql'
+      - 'migrations/**'
 
 jobs:
   build-and-test:
