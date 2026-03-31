@@ -5,8 +5,11 @@ info:
 
 http:
   method: GET
-  url: "{{base-url}}/api/tasks"
+  url: "{{base-url}}/api/tasks?deleted=true"
   params:
+    - name: deleted
+      value: "true"
+      type: query
     - name: sort
       value: updated
       type: query

@@ -1,17 +1,16 @@
 info:
-  name: Login
+  name: Complete Task
   type: http
-  seq: 2
+  seq: 6
 
 http:
-  method: POST
-  url: "{{base-url}}/api/auth/sign-in/email"
+  method: PATCH
+  url: "{{base-url}}/api/tasks/{{task-id}}/complete"
   body:
     type: json
     data: |-
       {
-        "email": "will@email.com",
-        "password": "testpass"
+        "completed": true
       }
   auth: inherit
 
