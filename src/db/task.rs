@@ -1906,7 +1906,183 @@ mod create_tests {
 }
 
 #[cfg(test)]
-mod retrieve_tests {}
+mod retrieve_tests {
+    use std::{collections::HashSet, env, path::Path, time::Duration};
+
+    use chrono::{DateTime, Utc};
+    use sqlx::{Connection, PgConnection, PgPool, migrate::Migrator, postgres::PgPoolOptions};
+    use tokio::{sync::OnceCell, test};
+    use uuid::Uuid;
+
+    use crate::com::model::Task;
+
+    use super::select_task_inner;
+
+    async fn insert_test_task(
+        tx: &mut PgConnection,
+        task: Task,
+        completed_at: Option<DateTime<Utc>>,
+        deleted_at: Option<DateTime<Utc>>,
+        created_at: DateTime<Utc>,
+        updated_at: DateTime<Utc>,
+    ) -> Uuid {
+        sqlx::query_scalar(
+            "INSERT INTO app.tasks (title, notes, start_on, start_at, deadline, created_by, completed_at, deleted_at, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
+        )
+        .bind(task.title)
+        .bind(task.notes)
+        .bind(task.start.as_ref().map(|s| s.as_on()))
+        .bind(task.start.as_ref().map(|s| s.as_at()))
+        .bind(task.deadline)
+        .bind(Uuid::nil())
+        .bind(completed_at)
+        .bind(deleted_at)
+        .bind(created_at)
+        .bind(updated_at)
+        .fetch_one(tx)
+        .await.unwrap()
+    }
+
+    static POOL: OnceCell<PgPool> = OnceCell::const_new();
+    async fn get_pool() -> &'static PgPool {
+        POOL.get_or_init(|| async {
+            dotenvy::from_filename("./.env.testing").ok();
+
+            // migration
+            let user = env::var("MIGRATION_USER").unwrap();
+            let pass = env::var("MIGRATION_PASS").unwrap();
+            let db = env::var("MIGRATION_DB").unwrap();
+            let url = format!("postgresql://{}:{}@localhost/{}", user, pass, db);
+
+            let mut conn = PgConnection::connect(&url).await.unwrap();
+
+            let m = Migrator::new(Path::new("./migrations")).await.unwrap();
+            m.run(&mut conn).await.unwrap();
+
+            // add dummy user
+            sqlx::query(
+                "INSERT INTO auth.user (\"id\", \"name\", \"email\", \"emailVerified\")
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (\"id\") DO NOTHING;",
+            )
+            .bind(Uuid::nil())
+            .bind("testuser")
+            .bind("testuser@email.com")
+            .bind(false)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+
+            // testing user
+            let url = env::var("DATABASE_URL").unwrap();
+            let pool_opts = PgPoolOptions::new().max_connections(1);
+            let pool = pool_opts.connect(&url).await.unwrap();
+
+            pool
+        })
+        .await
+    }
+
+    #[test]
+    async fn base_select() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let task_id = insert_test_task(
+            &mut tx,
+            Task::default(),
+            None,
+            None,
+            base_time,
+            base_time + Duration::from_hours(1),
+        )
+        .await;
+
+        let task = select_task_inner(&mut tx, task_id, Uuid::nil())
+            .await
+            .unwrap();
+        assert!(task.is_some());
+
+        let task = task.unwrap();
+        assert_eq!(task.title, "");
+        assert!(task.notes.is_none());
+        assert!(task.start.is_none());
+        assert!(task.deadline.is_none());
+        assert!(task.tags.is_empty());
+        assert!(task.completed_at.is_none());
+        assert!(task.deleted_at.is_none());
+    }
+
+    #[test]
+    async fn select_many_different() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let mut seen_ids = HashSet::new();
+        for _ in 0..10 {
+            let task_id = insert_test_task(
+                &mut tx,
+                Task::default(),
+                None,
+                None,
+                base_time,
+                base_time + Duration::from_hours(1),
+            )
+            .await;
+
+            assert!(seen_ids.insert(task_id), "duplicate task encountered");
+        }
+        assert!(!seen_ids.is_empty());
+
+        for id in seen_ids {
+            let task = select_task_inner(&mut tx, id, Uuid::nil()).await.unwrap();
+            assert!(task.is_some());
+
+            let task = task.unwrap();
+            assert_eq!(task.title, "");
+            assert!(task.notes.is_none());
+            assert!(task.start.is_none());
+            assert!(task.deadline.is_none());
+            assert!(task.tags.is_empty());
+            assert!(task.completed_at.is_none());
+            assert!(task.deleted_at.is_none());
+        }
+    }
+
+    #[test]
+    async fn try_select_deleted() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let mut seen_ids = HashSet::new();
+        for _ in 0..10 {
+            let task_id = insert_test_task(
+                &mut tx,
+                Task::default(),
+                None,
+                Some(base_time + Duration::from_hours(1)),
+                base_time,
+                base_time + Duration::from_hours(1),
+            )
+            .await;
+
+            assert!(seen_ids.insert(task_id), "duplicate task encountered");
+        }
+        assert!(!seen_ids.is_empty());
+
+        for id in seen_ids {
+            let task = select_task_inner(&mut tx, id, Uuid::nil()).await.unwrap();
+            assert!(task.is_none());
+        }
+    }
+}
 
 #[cfg(test)]
 mod update_tests {}
