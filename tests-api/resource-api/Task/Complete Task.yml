@@ -10,7 +10,7 @@ http:
     type: json
     data: |-
       {
-        "completed": true
+        "completed": false
       }
   auth: inherit
 
