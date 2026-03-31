@@ -1,8 +1,5 @@
-CREATE SCHEMA IF NOT EXISTS app;
-
--- Tag Table
 CREATE TABLE app.tags (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    id uuid PRIMARY KEY DEFAULT app.gen_random_uuid(),
 
     label varchar(255) NOT NULL,
     category varchar(255),
@@ -17,26 +14,8 @@ CREATE TABLE app.tags (
     FOREIGN KEY (created_by) REFERENCES auth.user (id)
 );
 
--- Task Table
-CREATE TABLE app.tasks (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-    title varchar(255) NOT NULL,
-    notes text,
-    -- TODO: create trigger to limit only start_date OR start_at
-    start_on date,
-    start_at timestamp with time zone,
-    deadline date,
-
-    deleted_at timestamp with time zone,
-
-    created_at timestamp with time zone NOT NULL default CURRENT_TIMESTAMP,
-    updated_at timestamp with time zone NOT NULL default CURRENT_TIMESTAMP,
-
-    created_by uuid NOT NULL,
-
-    FOREIGN KEY (created_by) REFERENCES auth.user (id)
-);
+-- Create index for deleted Tags
+CREATE INDEX ON app.tags (id) WHERE deleted_at IS NOT NULL;
 
 -- Task-Tag Table
 CREATE TABLE app.task_tags (
@@ -48,17 +27,8 @@ CREATE TABLE app.task_tags (
     FOREIGN KEY (tag_id) REFERENCES app.tags (id) ON DELETE CASCADE
 );
 
--- Create index for Task owner ids
-CREATE INDEX idx_tasks_owner
-ON app.tasks (created_by)
-WHERE deleted_at IS NULL;
-
--- Create indexes for deleted Tasks and Tags
-CREATE INDEX ON app.tasks (id) WHERE deleted_at IS NOT NULL;
-CREATE INDEX ON app.tags (id) WHERE deleted_at IS NOT NULL;
-
 -- Trigger to ensure that no task or tag is 'deleted' when adding task-tags
-CREATE OR REPLACE FUNCTION check_task_tag_not_deleted()
+CREATE OR REPLACE FUNCTION app.check_task_tag_not_deleted()
 RETURNS TRIGGER AS $$
 BEGIN
     IF EXISTS (
@@ -78,4 +48,4 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trig_check_task_tag_not_deleted
 BEFORE INSERT ON app.task_tags
 FOR EACH ROW
-EXECUTE FUNCTION check_task_tag_not_deleted();
+EXECUTE FUNCTION app.check_task_tag_not_deleted();

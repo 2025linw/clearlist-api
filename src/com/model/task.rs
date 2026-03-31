@@ -12,32 +12,36 @@ use super::{
     query::{DateFilter, Pagination},
 };
 
-#[derive(Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Default, PartialEq))]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
+    // primary key - not specifiable by user
     #[serde(skip_deserializing)]
     pub id: uuid::Uuid,
 
+    // values that are selected by user
     #[serde(default)]
     pub title: String,
     pub notes: Option<String>,
-    #[serde(default)]
-    pub start: Start,
+    pub start: Option<Start>,
     pub deadline: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub tags: Vec<Tag>,
 
+    // values associated with other functions/actions
     #[serde(skip_deserializing)]
     pub deleted_at: Option<chrono::DateTime<Utc>>,
 
+    // values that are created automatically by database
     #[serde(skip_deserializing)]
     pub created_at: chrono::DateTime<Utc>,
     #[serde(skip_deserializing)]
     pub updated_at: chrono::DateTime<Utc>,
 
+    // values that are innate to object
     #[serde(skip_deserializing)]
     pub created_by: uuid::Uuid,
-
-    #[serde(default)]
-    pub tags: Vec<Tag>,
 }
 
 #[derive(FromRow)]
@@ -64,9 +68,9 @@ pub struct TaskIntermediate {
 impl From<TaskIntermediate> for Task {
     fn from(value: TaskIntermediate) -> Self {
         let start = match (value.start_on, value.start_at) {
-            (Some(date), None) => Start::On(date),
-            (None, Some(datetime)) => Start::At(datetime),
-            (None, None) => Start::None,
+            (Some(date), None) => Some(Start::On(date)),
+            (None, Some(datetime)) => Some(Start::At(datetime)),
+            (None, None) => None,
             (Some(_), Some(_)) => panic!(
                 "unexpected values for start_on and start_at when converting intermediate task"
             ),

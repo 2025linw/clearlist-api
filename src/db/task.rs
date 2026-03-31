@@ -1,6 +1,6 @@
 use std::collections::{HashMap, hash_map::Entry};
 
-use sqlx::{PgPool, Postgres, QueryBuilder, Transaction};
+use sqlx::{PgConnection, PgPool, QueryBuilder};
 use uuid::Uuid;
 
 use crate::{
@@ -26,6 +26,14 @@ pub struct TaskQueryOptions {
 }
 
 pub async fn query_tasks(conn: PgPool, opts: TaskQueryOptions) -> Result<Vec<Task>> {
+    let mut tx = conn.begin().await?;
+    let tasks = query_tasks_inner(&mut tx, opts).await?;
+    tx.commit().await?;
+
+    Ok(tasks)
+}
+
+async fn query_tasks_inner(tx: &mut PgConnection, opts: TaskQueryOptions) -> Result<Vec<Task>> {
     let limit = opts.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let offset = opts.offset.unwrap_or(0).max(0);
 
@@ -82,8 +90,9 @@ pub async fn query_tasks(conn: PgPool, opts: TaskQueryOptions) -> Result<Vec<Tas
 
     let query = builder.build_query_as::<TaskIntermediate>();
 
-    let mut tasks = query.fetch_all(&conn).await?;
+    let mut tasks = query.fetch_all(tx.as_mut()).await?;
 
+    // Get tags
     let task_ids: Vec<Uuid> = tasks.iter().map(|task| task.id).collect();
     let tags = query_as_wrapper::<TaskTag>(
         "SELECT tt.task_id, tg.*
@@ -92,7 +101,7 @@ pub async fn query_tasks(conn: PgPool, opts: TaskQueryOptions) -> Result<Vec<Tas
             WHERE tt.task_id = ANY($1)",
     )
     .bind(task_ids)
-    .fetch_all(&conn)
+    .fetch_all(tx.as_mut())
     .await?;
 
     let mut task_tag_map: HashMap<Uuid, Vec<Tag>> = HashMap::new();
@@ -113,8 +122,14 @@ pub async fn query_tasks(conn: PgPool, opts: TaskQueryOptions) -> Result<Vec<Tas
 }
 
 pub async fn insert_task(conn: PgPool, user_id: Uuid, task: Task) -> Result<Uuid> {
-    let mut transaction = conn.begin().await?;
+    let mut tx = conn.begin().await?;
+    let task_id = insert_task_inner(&mut tx, user_id, task).await?;
+    tx.commit().await?;
 
+    Ok(task_id)
+}
+
+async fn insert_task_inner(tx: &mut PgConnection, user_id: Uuid, task: Task) -> Result<Uuid> {
     let task_id = sqlx::query_scalar(
         "INSERT INTO app.tasks (title, notes, start_on, start_at, deadline, created_by)
         VALUES ($1, $2, $3, $4, $5, $6)
@@ -122,23 +137,33 @@ pub async fn insert_task(conn: PgPool, user_id: Uuid, task: Task) -> Result<Uuid
     )
     .bind(task.title)
     .bind(task.notes)
-    .bind(task.start.as_on())
-    .bind(task.start.as_at())
+    .bind(task.start.as_ref().map(|s| s.as_on()))
+    .bind(task.start.as_ref().map(|s| s.as_at()))
     .bind(task.deadline)
     .bind(user_id)
-    .fetch_one(&mut *transaction)
+    .fetch_one(tx.as_mut())
     .await?;
 
     if !task.tags.is_empty() {
-        update_tag_helper(&mut transaction, task_id, task.tags).await?;
+        update_tag_helper(tx, task_id, task.tags).await?;
     }
-
-    transaction.commit().await?;
 
     Ok(task_id)
 }
 
 pub async fn select_task(conn: PgPool, task_id: Uuid, user_id: Uuid) -> Result<Option<Task>> {
+    let mut tx = conn.begin().await?;
+    let task = select_task_inner(&mut tx, task_id, user_id).await?;
+    tx.commit().await?;
+
+    Ok(task)
+}
+
+async fn select_task_inner(
+    tx: &mut PgConnection,
+    task_id: Uuid,
+    user_id: Uuid,
+) -> Result<Option<Task>> {
     let task_opt = query_as_wrapper::<TaskIntermediate>(
         "SELECT *
         FROM app.tasks
@@ -146,7 +171,7 @@ pub async fn select_task(conn: PgPool, task_id: Uuid, user_id: Uuid) -> Result<O
     )
     .bind(task_id)
     .bind(user_id)
-    .fetch_optional(&conn)
+    .fetch_optional(tx.as_mut())
     .await?;
 
     match task_opt {
@@ -159,7 +184,7 @@ pub async fn select_task(conn: PgPool, task_id: Uuid, user_id: Uuid) -> Result<O
                 WHERE tt.task_id = $1 AND tg.deleted_at IS NULL",
             )
             .bind(task_id)
-            .fetch_all(&conn)
+            .fetch_all(tx.as_mut())
             .await?;
 
             task.tags = tags;
@@ -175,41 +200,61 @@ pub async fn update_task(
     user_id: Uuid,
     task: Task,
 ) -> Result<Option<Task>> {
-    let mut transaction = conn.begin().await?;
+    let mut tx = conn.begin().await?;
+    let task_opt = update_task_inner(&mut tx, task_id, user_id, task).await?;
+    tx.commit().await?;
 
-    if sqlx::query(
+    Ok(task_opt)
+}
+
+async fn update_task_inner(
+    tx: &mut PgConnection,
+    task_id: Uuid,
+    user_id: Uuid,
+    task: Task,
+) -> Result<Option<Task>> {
+    let task_opt = query_as_wrapper::<TaskIntermediate>(
         "UPDATE app.tasks SET
         (updated_at, title, notes, start_on, start_at, deadline) =
         (CURRENT_TIMESTAMP, $3, $4, $5, $6, $7)
-        WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
+        WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL
+        RETURNING *",
     )
     .bind(task_id)
     .bind(user_id)
     .bind(task.title)
     .bind(task.notes)
-    .bind(task.start.as_on())
-    .bind(task.start.as_at())
+    .bind(task.start.clone().map(|s| s.as_on()))
+    .bind(task.start.clone().map(|s| s.as_at()))
     .bind(task.deadline)
-    .execute(&mut *transaction)
-    .await?
-    .rows_affected()
-        == 0
-    {
-        return Ok(None);
-    }
+    .fetch_optional(tx.as_mut())
+    .await?;
+
+    let task = match task_opt {
+        Some(task) => task,
+        None => return Ok(None),
+    };
 
     if !task.tags.is_empty() {
-        update_tag_helper(&mut transaction, task_id, task.tags).await?;
+        update_tag_helper(tx, task_id, task.tags.clone()).await?;
     }
 
-    transaction.commit().await?;
-
-    select_task(conn, task_id, user_id).await
+    Ok(Some(task.into()))
 }
 
 pub async fn delete_task(conn: PgPool, task_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
-    let mut transaction = conn.begin().await?;
+    let mut tx = conn.begin().await?;
+    let res = delete_task_inner(&mut tx, task_id, user_id).await?;
+    tx.commit().await?;
 
+    Ok(res)
+}
+
+async fn delete_task_inner(
+    tx: &mut PgConnection,
+    task_id: Uuid,
+    user_id: Uuid,
+) -> Result<Option<()>> {
     if sqlx::query(
         "UPDATE app.tasks SET
         (updated_at, deleted_at) =
@@ -218,7 +263,7 @@ pub async fn delete_task(conn: PgPool, task_id: Uuid, user_id: Uuid) -> Result<O
     )
     .bind(task_id)
     .bind(user_id)
-    .execute(&mut *transaction)
+    .execute(tx.as_mut())
     .await?
     .rows_affected()
         == 0
@@ -226,16 +271,10 @@ pub async fn delete_task(conn: PgPool, task_id: Uuid, user_id: Uuid) -> Result<O
         return Ok(None);
     }
 
-    transaction.commit().await?;
-
     Ok(Some(()))
 }
 
-pub async fn update_tag_helper(
-    tx: &mut Transaction<'_, Postgres>,
-    task_id: Uuid,
-    tags: Vec<Tag>,
-) -> Result<()> {
+pub async fn update_tag_helper(tx: &mut PgConnection, task_id: Uuid, tags: Vec<Tag>) -> Result<()> {
     let mut builder = QueryBuilder::new("INSERT INTO app.task_tags (task_id, tag_id) VALUES");
 
     let mut separated = builder.separated(", ");
@@ -247,8 +286,7 @@ pub async fn update_tag_helper(
         separated.push(")");
     }
 
-    let num_rows = builder.build().execute(&mut **tx).await?.rows_affected() as usize;
-
+    let num_rows = builder.build().execute(tx.as_mut()).await?.rows_affected() as usize;
     if num_rows != tags.len() {
         return Err(Error::Operation(format!(
             "expected: {} tags; got: {}",
@@ -331,36 +369,71 @@ pub mod tag {
 
 #[cfg(test)]
 mod query_tests {
-    use std::collections::HashSet;
-    use std::env;
-    use std::sync::OnceLock;
+    use std::{collections::HashSet, env, path::Path, time::Duration};
 
-    use chrono::NaiveDate;
-    use tokio::test;
+    use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+    use sqlx::{
+        {Connection, PgConnection, PgPool},
+        {migrate::Migrator, postgres::PgPoolOptions},
+    };
+    use tokio::{sync::OnceCell, test};
+    use uuid::Uuid;
 
-    use crate::com::model::db::DateBound;
-    use crate::com::model::util::Start;
+    use crate::{
+        com::model::{
+            Task,
+            db::{DateBound, DateFilter, SortOrder},
+            util::Start,
+        },
+        db::task::TaskQueryOptions,
+    };
 
-    use super::*;
+    use super::query_tasks_inner;
 
-    static DB_URL: OnceLock<String> = OnceLock::new();
+    const DATE_YEAR: i32 = 2027;
+    const START_MONTH: u32 = 1;
+    const DEADLINE_MONTH: u32 = 2;
+    const DELETED_MONTH: u32 = 3;
 
-    fn get_connect_url() -> &'static str {
-        let conn = DB_URL.get_or_init(|| {
-            dotenvy::from_filename(".env.testing").ok();
+    static POOL: OnceCell<PgPool> = OnceCell::const_new();
 
-            let url: String = env::var("DATABASE_URL").unwrap();
+    async fn get_pool() -> &'static PgPool {
+        POOL.get_or_init(|| async {
+            dotenvy::from_filename("./.env.testing").ok();
 
-            url
-        });
+            // migration
+            let user = env::var("MIGRATION_USER").unwrap();
+            let pass = env::var("MIGRATION_PASS").unwrap();
+            let db = env::var("MIGRATION_DB").unwrap();
+            let url = format!("postgresql://{}:{}@localhost/{}", user, pass, db);
 
-        // run migrations
+            let mut conn = PgConnection::connect(&url).await.unwrap();
 
-        conn
-    }
+            let m = Migrator::new(Path::new("./migrations")).await.unwrap();
+            m.run(&mut conn).await.unwrap();
 
-    async fn setup() -> PgPool {
-        PgPool::connect(get_connect_url()).await.unwrap()
+            // add dummy user
+            sqlx::query(
+                "INSERT INTO auth.user (\"id\", \"name\", \"email\", \"emailVerified\")
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (\"id\") DO NOTHING;",
+            )
+            .bind(Uuid::nil())
+            .bind("testuser")
+            .bind("testuser@email.com")
+            .bind(false)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+
+            // testing user
+            let url = env::var("DATABASE_URL").unwrap();
+            let pool_opts = PgPoolOptions::new().max_connections(1);
+            let pool = pool_opts.connect(&url).await.unwrap();
+
+            pool
+        })
+        .await
     }
 
     fn create_default_opts() -> TaskQueryOptions {
@@ -375,27 +448,161 @@ mod query_tests {
         }
     }
 
-    #[test]
-    async fn ensure_data_in_database() {
-        let conn = setup().await;
+    async fn insert_test_task(
+        tx: &mut PgConnection,
+        task: Task,
+        deleted_at: Option<DateTime<Utc>>,
+        created_at: DateTime<Utc>,
+        updated_at: DateTime<Utc>,
+    ) {
+        sqlx::query(
+            "INSERT INTO app.tasks (title, notes, start_on, start_at, deadline, created_by, deleted_at, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        )
+        .bind(task.title)
+        .bind(task.notes)
+        .bind(task.start.as_ref().map(|s| s.as_on()))
+        .bind(task.start.as_ref().map(|s| s.as_at()))
+        .bind(task.deadline)
+        .bind(Uuid::nil())
+        .bind(deleted_at)
+        .bind(created_at)
+        .bind(updated_at)
+        .execute(tx.as_mut())
+        .await.ok();
+    }
 
-        let opts = create_default_opts();
-        let tasks = query_tasks(conn.clone(), opts).await.unwrap();
-        assert_ne!(tasks.len(), 0, "no data in database setup for testing");
+    async fn create_test_data(tx: &mut PgConnection) {
+        // Create empty tasks
+        let base_time = Utc::now();
+        for i in 1..=10 {
+            let title = format!("Test Task {}", i);
 
-        let mut opts = create_default_opts();
-        opts.deleted = true;
-        let tasks = query_tasks(conn, opts).await.unwrap();
-        assert_ne!(tasks.len(), 0, "no deleted database setup for testing");
+            let task = Task {
+                title: title.clone(),
+                notes: Some(format!("Notes for '{}'", title)),
+                ..Default::default()
+            };
+
+            insert_test_task(
+                tx,
+                task,
+                None,
+                base_time + Duration::from_secs(i),
+                base_time + Duration::from_hours(1) + Duration::from_secs(60 - i),
+            )
+            .await;
+        }
+
+        // Create start date tasks
+        let base_time = Utc::now() + Duration::from_hours(1);
+        for i in 1..=10 {
+            let title = format!("Test Task SD{}", i);
+            let date = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, i).unwrap();
+
+            let task = Task {
+                title: title.clone(),
+                notes: Some(format!("Notes '{}'", title)),
+                start: Some(Start::On(date)),
+                ..Default::default()
+            };
+
+            insert_test_task(
+                tx,
+                task,
+                None,
+                base_time + Duration::from_secs(i as u64),
+                base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
+            )
+            .await;
+        }
+
+        // Create start datetime tasks
+        let base_time = Utc::now() + Duration::from_hours(2);
+        for i in 1..=10 {
+            let title = format!("Test Task SDt{}", i);
+            let date = NaiveDateTime::new(
+                NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, i).unwrap(),
+                NaiveTime::from_hms_opt(12, 00, 00).unwrap(),
+            );
+
+            let task = Task {
+                title: title.clone(),
+                notes: Some(format!("Notes '{}'", title)),
+                start: Some(Start::At(date.and_utc())),
+                ..Default::default()
+            };
+
+            insert_test_task(
+                tx,
+                task,
+                None,
+                base_time + Duration::from_secs(i as u64),
+                base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
+            )
+            .await;
+        }
+
+        // Create deadline tasks
+        let base_time = Utc::now() + Duration::from_hours(3);
+        for i in 1..=10 {
+            let title = format!("Test Task Dl{}", i);
+            let date = NaiveDate::from_ymd_opt(DATE_YEAR, DEADLINE_MONTH, i).unwrap();
+
+            let task = Task {
+                title: title.clone(),
+                notes: Some(format!("Notes '{}'", title)),
+                deadline: Some(date),
+                ..Default::default()
+            };
+
+            insert_test_task(
+                tx,
+                task,
+                None,
+                base_time + Duration::from_secs(i as u64),
+                base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
+            )
+            .await;
+        }
+
+        // Created deleted tasks
+        let base_time = Utc::now() + Duration::from_hours(3);
+        for i in 1..=10 {
+            let title = format!("Test Task Dl{}", i);
+            let date = NaiveDate::from_ymd_opt(DATE_YEAR, DELETED_MONTH, i).unwrap();
+
+            let task = Task {
+                title: title.clone(),
+                notes: Some(format!("Notes '{}'", title)),
+                deadline: Some(date),
+                ..Default::default()
+            };
+
+            insert_test_task(
+                tx,
+                task,
+                Some(base_time + Duration::from_hours(2) + Duration::from_secs(i as u64)),
+                base_time + Duration::from_secs(i as u64),
+                base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
+            )
+            .await;
+        }
     }
 
     #[test]
     async fn base_query() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
 
         let opts = create_default_opts();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        println!("{:#?}", tasks);
 
         // default sort is updated_at descending
         assert!(tasks.is_sorted_by(|a, b| a.updated_at >= b.updated_at));
@@ -408,12 +615,17 @@ mod query_tests {
 
     #[test]
     async fn updated_by_ascending() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
 
         let mut opts = create_default_opts();
         opts.sort_order = SortOrder::UpdatedAsc;
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         // default sort is updated_at descending
         assert!(tasks.is_sorted_by(|a, b| a.updated_at <= b.updated_at));
@@ -426,12 +638,17 @@ mod query_tests {
 
     #[test]
     async fn created_by_descending() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
 
         let mut opts = create_default_opts();
         opts.sort_order = SortOrder::CreatedDesc;
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         // default sort is updated_at descending
         assert!(tasks.is_sorted_by(|a, b| a.created_at >= b.created_at));
@@ -444,12 +661,17 @@ mod query_tests {
 
     #[test]
     async fn created_by_ascending() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
 
         let mut opts = create_default_opts();
         opts.sort_order = SortOrder::CreatedAsc;
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         // default sort is updated_at descending
         assert!(tasks.is_sorted_by(|a, b| a.created_at <= b.created_at));
@@ -462,15 +684,18 @@ mod query_tests {
 
     #[test]
     async fn limit() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
 
         for i in 1..=10 {
             let mut opts = create_default_opts();
             opts.limit = Some(i);
 
-            let tasks = query_tasks(conn.clone(), opts).await.unwrap();
-
-            assert_eq!(tasks.len() as i64, i);
+            let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+            assert!(!tasks.is_empty(), "must have data to test on");
 
             for task in &tasks {
                 // no deleted tasks
@@ -481,39 +706,58 @@ mod query_tests {
 
     #[test]
     async fn limit_0() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
 
         let mut opts = create_default_opts();
         opts.limit = Some(0);
 
-        query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
     }
 
     #[test]
     async fn limit_negative() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
 
         let mut opts = create_default_opts();
         opts.limit = Some(-10);
 
-        query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
     }
 
     #[test]
     async fn limit_with_paging_offset() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
 
         let limit = 5;
 
         // keep paging until less than 'limit' tasks are return
         let mut i = 0;
         let mut seen = HashSet::new();
+        let mut first = true;
         loop {
             let mut opts = create_default_opts();
             opts.limit = Some(limit);
             opts.offset = Some(i * limit);
 
-            let tasks = query_tasks(conn.clone(), opts).await.unwrap();
+            let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+            if first {
+                assert!(!tasks.is_empty(), "must have data to test on");
+                first = false;
+            }
 
             assert!(tasks.len() <= limit as usize);
             for task in &tasks {
@@ -536,39 +780,53 @@ mod query_tests {
         opts.limit = Some(limit);
         opts.offset = Some(i * limit);
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
 
-        assert_eq!(tasks.len(), 0);
+        assert!(tasks.is_empty());
     }
 
     #[test]
     async fn offset_negative() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
 
         let mut opts = create_default_opts();
         opts.offset = Some(-10);
 
-        query_tasks(conn, opts).await.unwrap();
+        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
     }
 
     #[test]
     async fn offset_without_limits() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
 
         let mut opts = create_default_opts();
         opts.offset = Some(20);
 
-        query_tasks(conn, opts).await.unwrap();
+        query_tasks_inner(tx.as_mut(), opts).await.unwrap();
     }
 
+    // TODO: add sort order to deleted
     #[test]
     async fn get_deleted() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
 
         let mut opts = create_default_opts();
         opts.deleted = true;
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             assert!(task.deleted_at.is_some());
@@ -577,158 +835,188 @@ mod query_tests {
 
     #[test]
     async fn filter_start_on() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 5).unwrap();
 
         let mut opts = create_default_opts();
         opts.start_filter = Some(DateFilter::On(test_date));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(!matches!(task.start, Start::None));
+            assert!(matches!(task.start, Some(_)));
 
-            match task.start {
-                Start::On(date) => assert_eq!(date, test_date),
+            match task.start.as_ref().unwrap() {
+                Start::On(date) => assert_eq!(date, &test_date),
                 Start::At(datetime) => assert_eq!(datetime.date_naive(), test_date),
-                _ => unreachable!(),
             }
         }
     }
 
     #[test]
     async fn filter_start_not_on() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 5).unwrap();
 
         let mut opts = create_default_opts();
         opts.start_filter = Some(DateFilter::NotOn(test_date));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            match task.start {
-                Start::On(date) => assert_ne!(date, test_date),
-                Start::At(datetime) => assert_ne!(datetime.date_naive(), test_date),
-                _ => (),
+            if let Some(start) = &task.start {
+                match start {
+                    Start::On(date) => assert_ne!(date, &test_date),
+                    Start::At(datetime) => assert_ne!(datetime.date_naive(), test_date),
+                }
             }
         }
     }
 
     #[test]
     async fn filter_start_after_excl() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 5).unwrap();
 
         let mut opts = create_default_opts();
         opts.start_filter = Some(DateFilter::StartRange(DateBound::Exclusive(test_date)));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(!matches!(task.start, Start::None));
+            assert!(matches!(task.start, Some(_)));
 
-            match task.start {
-                Start::On(date) => assert!(date > test_date),
+            match task.start.as_ref().unwrap() {
+                Start::On(date) => assert!(date > &test_date),
                 Start::At(datetime) => assert!(datetime.date_naive() > test_date),
-                _ => unreachable!(),
             }
         }
     }
 
     #[test]
     async fn filter_start_after_incl() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 5).unwrap();
 
         let mut opts = create_default_opts();
         opts.start_filter = Some(DateFilter::StartRange(DateBound::Inclusive(test_date)));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(!matches!(task.start, Start::None));
+            assert!(matches!(task.start, Some(_)));
 
-            match task.start {
-                Start::On(date) => assert!(date >= test_date),
+            match task.start.as_ref().unwrap() {
+                Start::On(date) => assert!(date >= &test_date),
                 Start::At(datetime) => assert!(datetime.date_naive() >= test_date),
-                _ => unreachable!(),
             }
         }
     }
 
     #[test]
     async fn filter_start_before_excl() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 5).unwrap();
 
         let mut opts = create_default_opts();
         opts.start_filter = Some(DateFilter::EndRange(DateBound::Exclusive(test_date)));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(!matches!(task.start, Start::None));
+            assert!(matches!(task.start, Some(_)));
 
-            match task.start {
-                Start::On(date) => assert!(date < test_date),
+            match task.start.as_ref().unwrap() {
+                Start::On(date) => assert!(date < &test_date),
                 Start::At(datetime) => assert!(datetime.date_naive() < test_date),
-                _ => unreachable!(),
             }
         }
     }
 
     #[test]
     async fn filter_start_before_incl() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 5).unwrap();
 
         let mut opts = create_default_opts();
         opts.start_filter = Some(DateFilter::EndRange(DateBound::Inclusive(test_date)));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(!matches!(task.start, Start::None));
+            assert!(matches!(task.start, Some(_)));
 
-            match task.start {
-                Start::On(date) => assert!(date <= test_date),
+            match task.start.as_ref().unwrap() {
+                Start::On(date) => assert!(date <= &test_date),
                 Start::At(datetime) => assert!(datetime.date_naive() <= test_date),
-                _ => unreachable!(),
             }
         }
     }
 
     #[test]
     async fn filter_start_between_excl() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date_min = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
-        let test_date_max = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date_min = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 3).unwrap();
+        let test_date_max = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 6).unwrap();
 
         let mut opts = create_default_opts();
         opts.start_filter = Some(DateFilter::Range(
@@ -736,30 +1024,34 @@ mod query_tests {
             DateBound::Exclusive(test_date_max),
         ));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(!matches!(task.start, Start::None));
+            assert!(matches!(task.start, Some(_)));
 
-            match task.start {
-                Start::On(date) => assert!(date > test_date_min && date < test_date_max),
+            match task.start.as_ref().unwrap() {
+                Start::On(date) => assert!(date > &test_date_min && date < &test_date_max),
                 Start::At(datetime) => assert!(
                     datetime.date_naive() > test_date_min && datetime.date_naive() < test_date_max
                 ),
-                _ => unreachable!(),
             }
         }
     }
 
     #[test]
     async fn filter_start_between_incl() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date_min = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
-        let test_date_max = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date_min = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 3).unwrap();
+        let test_date_max = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, 6).unwrap();
 
         let mut opts = create_default_opts();
         opts.start_filter = Some(DateFilter::Range(
@@ -767,35 +1059,40 @@ mod query_tests {
             DateBound::Inclusive(test_date_max),
         ));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(!matches!(task.start, Start::None));
+            assert!(matches!(task.start, Some(_)));
 
-            match task.start {
-                Start::On(date) => assert!(date >= test_date_min && date <= test_date_max),
+            match task.start.as_ref().unwrap() {
+                Start::On(date) => assert!(date >= &test_date_min && date <= &test_date_max),
                 Start::At(datetime) => assert!(
                     datetime.date_naive() >= test_date_min
                         && datetime.date_naive() <= test_date_max
                 ),
-                _ => unreachable!(),
             }
         }
     }
 
     #[test]
     async fn filter_deadline_on() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date = NaiveDate::from_ymd_opt(DATE_YEAR, DEADLINE_MONTH, 5).unwrap();
 
         let mut opts = create_default_opts();
         opts.deadline_filter = Some(DateFilter::On(test_date));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
@@ -807,14 +1104,19 @@ mod query_tests {
 
     #[test]
     async fn filter_deadline_not_on() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date = NaiveDate::from_ymd_opt(DATE_YEAR, DEADLINE_MONTH, 5).unwrap();
 
         let mut opts = create_default_opts();
         opts.deadline_filter = Some(DateFilter::NotOn(test_date));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
@@ -829,14 +1131,19 @@ mod query_tests {
 
     #[test]
     async fn filter_deadline_after_excl() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date = NaiveDate::from_ymd_opt(DATE_YEAR, DEADLINE_MONTH, 5).unwrap();
 
         let mut opts = create_default_opts();
         opts.deadline_filter = Some(DateFilter::StartRange(DateBound::Exclusive(test_date)));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
@@ -850,14 +1157,19 @@ mod query_tests {
 
     #[test]
     async fn filter_deadline_after_incl() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date = NaiveDate::from_ymd_opt(DATE_YEAR, DEADLINE_MONTH, 5).unwrap();
 
         let mut opts = create_default_opts();
         opts.deadline_filter = Some(DateFilter::StartRange(DateBound::Inclusive(test_date)));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
@@ -871,14 +1183,19 @@ mod query_tests {
 
     #[test]
     async fn filter_deadline_before_excl() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date = NaiveDate::from_ymd_opt(DATE_YEAR, DEADLINE_MONTH, 5).unwrap();
 
         let mut opts = create_default_opts();
         opts.deadline_filter = Some(DateFilter::EndRange(DateBound::Exclusive(test_date)));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
@@ -892,14 +1209,19 @@ mod query_tests {
 
     #[test]
     async fn filter_deadline_before_incl() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date = NaiveDate::from_ymd_opt(2025, 1, 4).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date = NaiveDate::from_ymd_opt(DATE_YEAR, DEADLINE_MONTH, 5).unwrap();
 
         let mut opts = create_default_opts();
         opts.deadline_filter = Some(DateFilter::EndRange(DateBound::Inclusive(test_date)));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
@@ -913,10 +1235,14 @@ mod query_tests {
 
     #[test]
     async fn filter_deadline_between_excl() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date_min = NaiveDate::from_ymd_opt(2025, 1, 3).unwrap();
-        let test_date_max = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date_min = NaiveDate::from_ymd_opt(DATE_YEAR, DEADLINE_MONTH, 3).unwrap();
+        let test_date_max = NaiveDate::from_ymd_opt(DATE_YEAR, DEADLINE_MONTH, 6).unwrap();
 
         let mut opts = create_default_opts();
         opts.deadline_filter = Some(DateFilter::Range(
@@ -924,7 +1250,8 @@ mod query_tests {
             DateBound::Exclusive(test_date_max),
         ));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
@@ -940,10 +1267,14 @@ mod query_tests {
 
     #[test]
     async fn filter_deadline_between_incl() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
-        let test_date_min = NaiveDate::from_ymd_opt(2025, 1, 3).unwrap();
-        let test_date_max = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        // create data
+        create_test_data(&mut tx).await;
+
+        let test_date_min = NaiveDate::from_ymd_opt(DATE_YEAR, DEADLINE_MONTH, 3).unwrap();
+        let test_date_max = NaiveDate::from_ymd_opt(DATE_YEAR, DEADLINE_MONTH, 6).unwrap();
 
         let mut opts = create_default_opts();
         opts.deadline_filter = Some(DateFilter::Range(
@@ -951,7 +1282,8 @@ mod query_tests {
             DateBound::Inclusive(test_date_max),
         ));
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in &tasks {
             // no deleted tasks
@@ -967,14 +1299,14 @@ mod query_tests {
 
     #[test]
     async fn as_nonexistent_user() {
-        let conn = setup().await;
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
 
         let mut opts = create_default_opts();
         opts.user_id = Uuid::new_v4();
 
-        let tasks = query_tasks(conn, opts).await.unwrap();
-
-        assert_eq!(tasks.len(), 0);
+        let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
+        assert!(tasks.is_empty());
     }
 }
 

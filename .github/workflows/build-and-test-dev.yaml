@@ -12,6 +12,20 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
     - name: Checkout repository
@@ -28,14 +42,16 @@ jobs:
     - name: Run clippy
       run: cargo clippy
 
-    - name: Connect to Tailscale
-      uses: tailscale/github-action@v4
-      with:
-        oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-        oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-        tags: tag:ci
+    - name: Database bootstrap for testing
+      env:
+        PGHOST: localhost
+        PGDATABASE: testdb
+        PGUSER: test
+        PGPASSWORD: test
+      run: |
+        psql -v ON_ERROR_STOP=1 -f setup_dev.sql
 
     - name: Run tests
       env:
-        DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+        DATABASE_URL: postgresql://cl_api:cl_api@localhost:5432/testdb
       run: cargo test --verbose
