@@ -12,6 +12,20 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
     - name: Checkout repository
@@ -25,15 +39,29 @@ jobs:
     - name: Build release binary
       run: cargo build --release
 
+    - name: Bootstrap database for testing
+      env:
+        PGHOST: localhost
+        PGDATABASE: testdb
+        PGUSER: test
+        PGPASSWORD: test
+      run: |
+        psql -v ON_ERROR_STOP=1 -f setup_dev.sql
+
+    - name: Run tests
+      env:
+        MIGRATION_USER: cl_migrate
+        MIGRATION_PASS: cl_migrate
+        MIGRATION_DB: testdb
+        DATABASE_URL: postgresql://cl_api:cl_api@localhost:5432/testdb
+      run: cargo test --release --verbose
+
     - name: Connect to Tailscale
       uses: tailscale/github-action@v4
       with:
         oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
         oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
         tags: tag:ci
-
-    - name: Run tests
-      run: cargo test --release --verbose
 
     - name: Upload binary to server
       uses: appleboy/scp-action@v0.1.7

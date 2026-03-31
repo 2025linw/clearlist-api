@@ -458,7 +458,6 @@ mod query_tests {
     const DELETED_MONTH: u32 = 3;
 
     static POOL: OnceCell<PgPool> = OnceCell::const_new();
-
     async fn get_pool() -> &'static PgPool {
         POOL.get_or_init(|| async {
             dotenvy::from_filename("./.env.testing").ok();
@@ -1422,10 +1421,283 @@ mod query_tests {
         let tasks = query_tasks_inner(tx.as_mut(), opts).await.unwrap();
         assert!(tasks.is_empty());
     }
+
+    #[test]
+    async fn combination_1() {
+        // Get all todos that start between 2027-
+        todo!()
+    }
+
+    #[test]
+    async fn combination_2() {
+        todo!()
+    }
+
+    #[test]
+    async fn combination_3() {
+        todo!()
+    }
+
+    #[test]
+    async fn combination_4() {
+        todo!()
+    }
+
+    #[test]
+    async fn combination_5() {
+        todo!()
+    }
 }
 
 #[cfg(test)]
-mod create_tests {}
+mod create_tests {
+    use std::{env, path::Path};
+
+    use chrono::{SubsecRound, Utc};
+    use sqlx::{Connection, PgConnection, PgPool, migrate::Migrator, postgres::PgPoolOptions};
+    use tokio::{sync::OnceCell, test};
+    use uuid::Uuid;
+
+    use crate::com::model::{Task, util::Start};
+
+    use super::{insert_task_inner, select_task_inner};
+
+    const PG_SUBSEC_PREC: u16 = 6;
+
+    static POOL: OnceCell<PgPool> = OnceCell::const_new();
+    async fn get_pool() -> &'static PgPool {
+        POOL.get_or_init(|| async {
+            dotenvy::from_filename("./.env.testing").ok();
+
+            // migration
+            let user = env::var("MIGRATION_USER").unwrap();
+            let pass = env::var("MIGRATION_PASS").unwrap();
+            let db = env::var("MIGRATION_DB").unwrap();
+            let url = format!("postgresql://{}:{}@localhost/{}", user, pass, db);
+
+            let mut conn = PgConnection::connect(&url).await.unwrap();
+
+            let m = Migrator::new(Path::new("./migrations")).await.unwrap();
+            m.run(&mut conn).await.unwrap();
+
+            // add dummy user
+            sqlx::query(
+                "INSERT INTO auth.user (\"id\", \"name\", \"email\", \"emailVerified\")
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (\"id\") DO NOTHING;",
+            )
+            .bind(Uuid::nil())
+            .bind("testuser")
+            .bind("testuser@email.com")
+            .bind(false)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+
+            // testing user
+            let url = env::var("DATABASE_URL").unwrap();
+            let pool_opts = PgPoolOptions::new().max_connections(1);
+            let pool = pool_opts.connect(&url).await.unwrap();
+
+            pool
+        })
+        .await
+    }
+
+    #[test]
+    async fn base_insert() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let task = Task::default();
+
+        let task_id = insert_task_inner(&mut tx, Uuid::nil(), task).await.unwrap();
+
+        let task = select_task_inner(&mut tx, task_id, Uuid::nil())
+            .await
+            .unwrap();
+        assert!(task.is_some());
+
+        let task = task.unwrap();
+        assert_eq!(task.title, "");
+        assert!(task.notes.is_none());
+        assert!(task.start.is_none());
+        assert!(task.deadline.is_none());
+        assert!(task.tags.is_empty());
+        assert!(task.deleted_at.is_none());
+        assert_eq!(task.created_by, Uuid::nil());
+    }
+
+    #[test]
+    async fn with_title() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let title = format!("This is a test title for with_title() test");
+
+        let mut task = Task::default();
+        task.title = title.clone();
+
+        let task_id = insert_task_inner(&mut tx, Uuid::nil(), task).await.unwrap();
+
+        let task = select_task_inner(&mut tx, task_id, Uuid::nil())
+            .await
+            .unwrap();
+        assert!(task.is_some());
+
+        let task = task.unwrap();
+        assert_eq!(task.title, "This is a test title for with_title() test");
+        assert!(task.notes.is_none());
+        assert!(task.start.is_none());
+        assert!(task.deadline.is_none());
+        assert!(task.tags.is_empty());
+        assert!(task.deleted_at.is_none());
+        assert_eq!(task.created_by, Uuid::nil());
+    }
+
+    #[test]
+    async fn with_notes() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let notes = format!("This is the notes section in the with_notes() test");
+
+        let mut task = Task::default();
+        task.notes = Some(notes);
+
+        let task_id = insert_task_inner(&mut tx, Uuid::nil(), task).await.unwrap();
+
+        let task = select_task_inner(&mut tx, task_id, Uuid::nil())
+            .await
+            .unwrap();
+        assert!(task.is_some());
+
+        let task = task.unwrap();
+        assert_eq!(task.title, "");
+        assert!(task.notes.is_some());
+        assert_eq!(
+            task.notes.unwrap(),
+            "This is the notes section in the with_notes() test"
+        );
+        assert!(task.start.is_none());
+        assert!(task.deadline.is_none());
+        assert!(task.tags.is_empty());
+        assert!(task.deleted_at.is_none());
+        assert_eq!(task.created_by, Uuid::nil());
+    }
+
+    #[test]
+    async fn with_start_date() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let date = Utc::now().date_naive();
+
+        let mut task = Task::default();
+        task.start = Some(Start::On(date.clone()));
+
+        let task_id = insert_task_inner(&mut tx, Uuid::nil(), task).await.unwrap();
+
+        let task = select_task_inner(&mut tx, task_id, Uuid::nil())
+            .await
+            .unwrap();
+        assert!(task.is_some());
+
+        let task = task.unwrap();
+        assert_eq!(task.title, "");
+        assert!(task.notes.is_none());
+        assert!(task.start.is_some());
+        assert_eq!(task.start.unwrap(), Start::On(date));
+        assert!(task.deadline.is_none());
+        assert!(task.tags.is_empty());
+        assert!(task.deleted_at.is_none());
+        assert_eq!(task.created_by, Uuid::nil());
+    }
+
+    #[test]
+    async fn with_start_datetime() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let datetime = Utc::now();
+
+        let mut task = Task::default();
+        task.start = Some(Start::At(datetime));
+
+        let task_id = insert_task_inner(&mut tx, Uuid::nil(), task).await.unwrap();
+
+        let task = select_task_inner(&mut tx, task_id, Uuid::nil())
+            .await
+            .unwrap();
+        assert!(task.is_some());
+
+        let task = task.unwrap();
+        assert_eq!(task.title, "");
+        assert!(task.notes.is_none());
+        assert!(task.start.is_some());
+        assert_eq!(
+            task.start.unwrap(),
+            Start::At(datetime.trunc_subsecs(PG_SUBSEC_PREC))
+        );
+        assert!(task.deadline.is_none());
+        assert!(task.tags.is_empty());
+        assert!(task.deleted_at.is_none());
+        assert_eq!(task.created_by, Uuid::nil());
+    }
+
+    #[test]
+    async fn with_deadline() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let date = Utc::now().date_naive();
+
+        let mut task = Task::default();
+        task.deadline = Some(date.clone());
+
+        let task_id = insert_task_inner(&mut tx, Uuid::nil(), task).await.unwrap();
+
+        let task = select_task_inner(&mut tx, task_id, Uuid::nil())
+            .await
+            .unwrap();
+        assert!(task.is_some());
+
+        let task = task.unwrap();
+        assert_eq!(task.title, "");
+        assert!(task.notes.is_none());
+        assert!(task.start.is_none());
+        assert!(task.deadline.is_some());
+        assert_eq!(task.deadline.unwrap(), date);
+        assert!(task.tags.is_empty());
+        assert!(task.deleted_at.is_none());
+        assert_eq!(task.created_by, Uuid::nil());
+    }
+
+    #[test]
+    async fn combination_1() {
+        todo!()
+    }
+
+    #[test]
+    async fn combination_2() {
+        todo!()
+    }
+
+    #[test]
+    async fn combination_3() {
+        todo!()
+    }
+
+    #[test]
+    async fn combination_4() {
+        todo!()
+    }
+
+    #[test]
+    async fn combination_5() {
+        todo!()
+    }
+}
 
 #[cfg(test)]
 mod retrieve_tests {}

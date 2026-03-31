@@ -42,7 +42,7 @@ jobs:
     - name: Run clippy
       run: cargo clippy
 
-    - name: Database bootstrap for testing
+    - name: Bootstrap database for testing
       env:
         PGHOST: localhost
         PGDATABASE: testdb
