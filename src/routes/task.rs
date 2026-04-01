@@ -64,17 +64,16 @@ pub async fn query_handler(
     };
 
     let opts = TaskQueryOptions {
-        user_id: session.user_id,
         limit: Some(limit),
         offset: Some(offset),
+        sort_order,
         completed,
         deleted,
         start_filter,
         deadline_filter,
-        sort_order,
     };
 
-    let tasks: Vec<Task> = query_tasks(data.db.pool(), opts)
+    let tasks: Vec<Task> = query_tasks(data.db.pool(), session.user_id, opts)
         .await
         .map_err(Error::from)?;
 
