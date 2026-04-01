@@ -30,10 +30,6 @@ async fn main() {
         eprintln!("DATABASE_URL not found in environment variables");
         missing_env = true;
     }
-    // if env::var("COOKIE_KEY").is_err() {
-    //     eprintln!("COOKIE_KEY not found in environment variables");
-    //     missing_env = true;
-    // }
     if missing_env {
         // If missing env vars, exit process.
         std::process::exit(1);

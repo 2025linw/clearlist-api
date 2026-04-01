@@ -41,6 +41,7 @@ pub fn create_app(app_state: AppState) -> Router {
     ];
 
     let cors = CorsLayer::new()
+        .allow_credentials(true)
         .allow_origin(origins)
         .allow_headers(headers)
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE]);
