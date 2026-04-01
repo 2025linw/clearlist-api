@@ -24,26 +24,22 @@ impl Response {
         }
     }
 
-    pub fn add_kv(&mut self, key: &str, value: Value) {
+    pub fn add_kv(mut self, key: &str, value: Value) -> Self {
         self.json_map.insert(key.to_string(), value);
-    }
-
-    pub fn status(mut self, status: &str) -> Self {
-        self.add_kv("status", serde_json::to_value(status).unwrap());
 
         self
     }
 
-    pub fn msg(mut self, msg: &str) -> Self {
-        self.add_kv("message", serde_json::to_value(msg).unwrap());
-
-        self
+    pub fn status(self, status: &str) -> Self {
+        self.add_kv("status", Value::String(status.to_string()))
     }
 
-    pub fn data(mut self, data: serde_json::Value) -> Self {
-        self.add_kv("data", data);
+    pub fn msg(self, msg: &str) -> Self {
+        self.add_kv("message", Value::String(msg.to_string()))
+    }
 
-        self
+    pub fn data(self, data: serde_json::Value) -> Self {
+        self.add_kv("data", data)
     }
 }
 
