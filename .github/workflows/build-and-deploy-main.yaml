@@ -99,7 +99,7 @@ jobs:
         script: |
           set -e
 
-          sudo systemctl restart clearlist-api.service
+          sudo -n systemctl restart clearlist-api.service
 
           MAX_WAIT=10
           INTERVAL=2
