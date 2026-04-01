@@ -99,14 +99,14 @@ jobs:
         script: |
           set -e
 
-          sudo -n systemctl restart clearlist-api.service
+          sudo systemctl restart clearlist-api.service
 
           MAX_WAIT=10
           INTERVAL=2
 
           # Retry until active or timeout
           ELAPSED=0
-          while ! sudo systemctl is-active --quiet clearlist-api.service; do
+          while ! systemctl is-active --quiet clearlist-api.service; do
               sleep $INTERVAL
               ELAPSED=$((ELAPSED + INTERVAL))
               if [ $ELAPSED -ge $MAX_WAIT ]; then
