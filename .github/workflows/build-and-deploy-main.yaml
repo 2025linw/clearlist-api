@@ -99,6 +99,6 @@ jobs:
         script: |
           set -e
 
-          sudo -n systemctl restart --wait clearlist-api
+          sudo -n systemctl restart --wait clearlist-api.service
 
-          systemctl is-active --quiet clearlist-api || { echo "starting clearlist-api failed"; exit 1; }
+          systemctl is-active --quiet clearlist-api.service || { echo "starting clearlist-api failed"; exit 1; }
