@@ -51,8 +51,8 @@ jobs:
 
     - name: Run tests
       env:
-        MIGRATION_URL: postgresql://cl_migrate:${{ secrets.MIGRATION_PASS }}@localhost/${{ secrets.DB_NAME }}
-        DATABASE_URL: postgresql://cl_api:${{ secrets.API_PASS }}@localhost/${{ secrets.DB_NAME }}
+        MIGRATION_URL: postgresql://cl_migrate:cl_migrate@localhost/testdb
+        DATABASE_URL: postgresql://cl_api:cl_api@localhost/testdb
       run: cargo test --release --verbose
 
     - name: Connect to Tailscale
