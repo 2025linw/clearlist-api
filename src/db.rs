@@ -8,7 +8,8 @@ pub use error::{Error, Result};
 use std::env;
 
 use sqlx::{
-    FromRow, PgPool, Postgres,
+    FromRow, PgConnection, PgPool, Postgres, migrate,
+    migrate::MigrateError,
     postgres::{PgArguments, PgConnectOptions, PgPoolOptions, PgRow, PgSslMode},
     query::QueryAs,
 };
@@ -73,6 +74,10 @@ impl DatabaseConn {
     pub fn pool(&self) -> PgPool {
         self.pool.clone()
     }
+}
+
+pub async fn run_migration(conn: &mut PgConnection) -> std::result::Result<(), MigrateError> {
+    migrate!().run(conn).await
 }
 
 fn query_as_wrapper<'q, T>(sql: &'q str) -> QueryAs<'q, Postgres, T, PgArguments>

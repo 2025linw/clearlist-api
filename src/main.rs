@@ -1,10 +1,11 @@
 use std::{env, net::SocketAddr};
 
+use sqlx::{Connection, PgConnection};
 use tokio::net::TcpListener;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
-use clearlist_api::{AppState, DatabaseConn, create_app};
+use clearlist_api::{AppState, DatabaseConn, create_app, run_migration};
 
 // TODO: add anyhow
 
@@ -12,6 +13,40 @@ use clearlist_api::{AppState, DatabaseConn, create_app};
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
+
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 {
+        if args.len() > 2 {
+            eprintln!("{} expected 0-1 argument: 'function'", args[0]);
+            std::process::exit(1);
+        }
+
+        match args[1].as_ref() {
+            "migrate" => {
+                if env::var("MIGRATION_URL").is_err() {
+                    eprintln!("MIGRATION_URL not found in environment variables");
+                    std::process::exit(1);
+                }
+
+                let url = env::var("MIGRATION_URL").unwrap();
+                let mut conn = PgConnection::connect(&url).await.unwrap();
+
+                // TODO: turn this into a function that can be reused in testing
+                if let Err(e) = run_migration(&mut conn).await {
+                    eprintln!("error occured running migration: {}", e);
+                    std::process::exit(1);
+                }
+
+                println!("migration ran successfully");
+            }
+            _ => {
+                eprintln!("unknown option found: '{}'", args[1]);
+                std::process::exit(1);
+            }
+        }
+
+        std::process::exit(0);
+    }
 
     // Initialize logging
     tracing_subscriber::fmt()

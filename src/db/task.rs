@@ -431,12 +431,12 @@ pub mod tag {
 
 #[cfg(test)]
 mod query_tests {
-    use std::{collections::HashSet, env, path::Path, time::Duration};
+    use std::{collections::HashSet, env, time::Duration};
 
     use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
     use sqlx::{
+        postgres::PgPoolOptions,
         {Connection, PgConnection, PgPool},
-        {migrate::Migrator, postgres::PgPoolOptions},
     };
     use tokio::{sync::OnceCell, test};
     use uuid::Uuid;
@@ -448,6 +448,7 @@ mod query_tests {
             util::Start,
         },
         db::task::TaskQueryOptions,
+        run_migration,
     };
 
     use super::query_tasks_inner;
@@ -462,16 +463,11 @@ mod query_tests {
         POOL.get_or_init(|| async {
             dotenvy::from_filename("./.env.testing").ok();
 
-            // migration
-            let user = env::var("MIGRATION_USER").unwrap();
-            let pass = env::var("MIGRATION_PASS").unwrap();
-            let db = env::var("MIGRATION_DB").unwrap();
-            let url = format!("postgresql://{}:{}@localhost/{}", user, pass, db);
-
+            let url = env::var("MIGRATION_URL").unwrap();
             let mut conn = PgConnection::connect(&url).await.unwrap();
 
-            let m = Migrator::new(Path::new("./migrations")).await.unwrap();
-            m.run(&mut conn).await.unwrap();
+            // migration
+            run_migration(&mut conn).await.unwrap();
 
             // add dummy user
             sqlx::query(
@@ -1584,14 +1580,17 @@ mod query_tests {
 
 #[cfg(test)]
 mod create_tests {
-    use std::{env, path::Path};
+    use std::env;
 
     use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, SubsecRound, Utc};
-    use sqlx::{Connection, PgConnection, PgPool, migrate::Migrator, postgres::PgPoolOptions};
+    use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
     use tokio::{sync::OnceCell, test};
     use uuid::Uuid;
 
-    use crate::com::model::{Task, util::Start};
+    use crate::{
+        com::model::{Task, util::Start},
+        run_migration,
+    };
 
     use super::{insert_task_inner, select_task_inner};
 
@@ -1602,16 +1601,11 @@ mod create_tests {
         POOL.get_or_init(|| async {
             dotenvy::from_filename("./.env.testing").ok();
 
-            // migration
-            let user = env::var("MIGRATION_USER").unwrap();
-            let pass = env::var("MIGRATION_PASS").unwrap();
-            let db = env::var("MIGRATION_DB").unwrap();
-            let url = format!("postgresql://{}:{}@localhost/{}", user, pass, db);
-
+            let url = env::var("MIGRATION_URL").unwrap();
             let mut conn = PgConnection::connect(&url).await.unwrap();
 
-            let m = Migrator::new(Path::new("./migrations")).await.unwrap();
-            m.run(&mut conn).await.unwrap();
+            // migration
+            run_migration(&mut conn).await.unwrap();
 
             // add dummy user
             sqlx::query(
@@ -1907,14 +1901,14 @@ mod create_tests {
 
 #[cfg(test)]
 mod retrieve_tests {
-    use std::{collections::HashSet, env, path::Path, time::Duration};
+    use std::{collections::HashSet, env, time::Duration};
 
     use chrono::{DateTime, Utc};
-    use sqlx::{Connection, PgConnection, PgPool, migrate::Migrator, postgres::PgPoolOptions};
+    use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
     use tokio::{sync::OnceCell, test};
     use uuid::Uuid;
 
-    use crate::com::model::Task;
+    use crate::{com::model::Task, run_migration};
 
     use super::select_task_inner;
 
@@ -1949,16 +1943,11 @@ mod retrieve_tests {
         POOL.get_or_init(|| async {
             dotenvy::from_filename("./.env.testing").ok();
 
-            // migration
-            let user = env::var("MIGRATION_USER").unwrap();
-            let pass = env::var("MIGRATION_PASS").unwrap();
-            let db = env::var("MIGRATION_DB").unwrap();
-            let url = format!("postgresql://{}:{}@localhost/{}", user, pass, db);
-
+            let url = env::var("MIGRATION_URL").unwrap();
             let mut conn = PgConnection::connect(&url).await.unwrap();
 
-            let m = Migrator::new(Path::new("./migrations")).await.unwrap();
-            m.run(&mut conn).await.unwrap();
+            // migration
+            run_migration(&mut conn).await.unwrap();
 
             // add dummy user
             sqlx::query(

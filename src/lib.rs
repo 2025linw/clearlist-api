@@ -6,7 +6,7 @@ mod util;
 mod db;
 mod routes;
 
-pub use db::DatabaseConn;
+pub use db::{DatabaseConn, run_migration};
 
 use std::env;
 

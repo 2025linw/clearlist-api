@@ -8,6 +8,7 @@ on:
       - '.github/workflows/build-and-deploy-main.yaml'
       - 'src/**'
       - 'Cargo.lock'
+      - 'migrations/**'
 
 jobs:
   build-and-deploy:
@@ -50,10 +51,8 @@ jobs:
 
     - name: Run tests
       env:
-        MIGRATION_USER: cl_migrate
-        MIGRATION_PASS: cl_migrate
-        MIGRATION_DB: testdb
-        DATABASE_URL: postgresql://cl_api:cl_api@localhost:5432/testdb
+        MIGRATION_URL: postgresql://cl_migrate:${{ secrets.MIGRATION_PASS }}@localhost/${{ secrets.DB_NAME }}
+        DATABASE_URL: postgresql://cl_api:${{ secrets.API_PASS }}@localhost/${{ secrets.DB_NAME }}
       run: cargo test --release --verbose
 
     - name: Connect to Tailscale
@@ -73,13 +72,30 @@ jobs:
         strip_components: 3
         target: /tmp/clearlist-api/
 
-    - name: Deploy binary to working path and restart service
+    - name: Move binary to working path
       uses: appleboy/ssh-action@v1.0.0
       with:
         host: ${{ secrets.DEPLOY_HOST }}
         username: ${{ secrets.DEPLOY_USER }}
         key: ${{ secrets.DEPLOY_KEY }}
+        script: mv /tmp/clearlist-api/clearlist-api ${{ secrets.DEPLOY_PATH }}
+
+    - name: Run database migration
+      uses: appleboy/ssh-action@v1.0.0
+      env:
+        MIGRATION_URL: postgresql://cl_migrate:${{ secrets.MIGRATION_PASS }}@localhost/${{ secrets.DB_NAME }}
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        username: ${{ secrets.DEPLOY_USER }}
+        key: ${{ secrets.DEPLOY_KEY }}
         script: |
-          sudo -n systemctl stop clearlist-api.service
-          cp /tmp/clearlist-api/clearlist-api ${{ secrets.DEPLOY_PATH }}
-          sudo -n systemctl start clearlist-api.service
+          cd ${{ secrets.DEPLOY_PATH }}
+          ./clearlist-api migrate
+
+    - name: Restart service
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        username: ${{ secrets.DEPLOY_USER }}
+        key: ${{ secrets.DEPLOY_KEY }}
+        script: sudo -n systemctl restart clearlist-api.service
