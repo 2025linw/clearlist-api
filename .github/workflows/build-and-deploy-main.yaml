@@ -96,4 +96,7 @@ jobs:
         host: ${{ secrets.DEPLOY_HOST }}
         username: ${{ secrets.DEPLOY_USER }}
         key: ${{ secrets.DEPLOY_KEY }}
-        script: sudo -n systemctl restart clearlist-api.service
+        script: |
+          sudo -n systemctl restart --wait clearlist-api
+
+          systemctl is-active --quiet clearlist-api || { echo "starting clearlist-api failed"; exit 1; }
