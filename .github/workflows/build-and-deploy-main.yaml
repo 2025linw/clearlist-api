@@ -99,6 +99,19 @@ jobs:
         script: |
           set -e
 
-          sudo -n systemctl restart --wait clearlist-api.service
+          sudo -n systemctl restart clearlist-api.service
 
-          systemctl is-active --quiet clearlist-api.service || { echo "starting clearlist-api failed"; exit 1; }
+          MAX_WAIT=10
+          INTERVAL=2
+
+          # Retry until active or timeout
+          ELAPSED=0
+          while ! sudo systemctl is-active --quiet clearlist-api.service; do
+              sleep $INTERVAL
+              ELAPSED=$((ELAPSED + INTERVAL))
+              if [ $ELAPSED -ge $MAX_WAIT ]; then
+                  echo "Service failed to start after $MAX_WAIT seconds"
+                  sudo journalctl -u clearlist-api.service -n 50 --no-pager
+                  exit 1
+              fi
+          done
