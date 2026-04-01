@@ -82,8 +82,6 @@ jobs:
 
     - name: Run database migration
       uses: appleboy/ssh-action@v1.0.0
-      env:
-        MIGRATION_URL: postgresql://cl_migrate:${{ secrets.MIGRATION_PASS }}@localhost/${{ secrets.DB_NAME }}
       with:
         host: ${{ secrets.DEPLOY_HOST }}
         username: ${{ secrets.DEPLOY_USER }}

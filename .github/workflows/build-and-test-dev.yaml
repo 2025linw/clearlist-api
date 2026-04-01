@@ -55,8 +55,6 @@ jobs:
 
     - name: Run tests
       env:
-        MIGRATION_USER: cl_migrate
-        MIGRATION_PASS: cl_migrate
-        MIGRATION_DB: testdb
+        MIGRATION_URL: postgresql://cl_migrate:cl_migrate@localhost:5432/testdb
         DATABASE_URL: postgresql://cl_api:cl_api@localhost:5432/testdb
       run: cargo test --verbose
