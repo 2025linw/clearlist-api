@@ -9,7 +9,7 @@ CREATE ROLE cl_rw WITH NOSUPERUSER NOCREATEDB NOCREATEROLE;
 
 -- API user
 CREATE ROLE cl_api WITH LOGIN PASSWORD 'cl_api';
-GRANT cl_rw TO cl_api WITH SET FALSE;
+GRANT cl_rw TO cl_api;
 
 -- Auth user
 CREATE ROLE cl_auth WITH LOGIN PASSWORD 'cl_auth';
