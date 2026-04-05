@@ -28,6 +28,7 @@ impl std::fmt::Display for SQLCmp {
     }
 }
 
+// TODO: convert from NaiveDate to DateTime<Utc>
 #[derive(Debug, PartialEq)]
 pub enum DateBound {
     Exclusive(NaiveDate),
@@ -160,9 +161,7 @@ impl TryFrom<DateFilterQuery> for DateFilter {
                     DateBound::Inclusive(start_date),
                     DateBound::Inclusive(end_date),
                 )),
-                _ => Err(Error::DateRangeConversion(
-                    "unable to convert from query filter to db filter".to_string(),
-                )),
+                _ => Err(Error::DateRangeConversion("invalid date range".to_string())),
             },
             DateFilterQuery::ISO8601Interval([start_date, end_date]) => Ok(DateFilter::Range(
                 DateBound::Inclusive(start_date),

@@ -46,6 +46,7 @@ impl Response {
 impl From<Error> for Response {
     fn from(value: Error) -> Self {
         match value {
+            Error::NotFound(msg) => Self::new(StatusCode::NOT_FOUND).msg(&msg),
             Error::InvalidRequest(msg) => Self::new(StatusCode::BAD_REQUEST).status(ERR).msg(&msg),
             Error::InternalServer(msg) => Self::new(StatusCode::INTERNAL_SERVER_ERROR)
                 .status(ERR)

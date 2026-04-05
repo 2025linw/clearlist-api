@@ -1,12 +1,13 @@
+//! # Tag
+//!
+//! `tag` contains collection of database functions for Tags
+
 use sqlx::{PgPool, QueryBuilder};
 use uuid::Uuid;
 
-use crate::{
-    com::model::Tag,
-    db::{DEFAULT_LIMIT, MAX_LIMIT, query_as_wrapper},
-};
+use crate::com::model::Tag;
 
-use super::Result;
+use super::{DEFAULT_LIMIT, MAX_LIMIT, Result, query_as_wrapper};
 
 pub struct TagQueryOptions {
     pub user_id: Uuid,

@@ -1,3 +1,8 @@
+use std::error::Error as StdError;
+use std::fmt::Display;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
 #[derive(Debug)]
 pub enum Error {
     /// Error that occurs with the database connection
@@ -7,11 +12,10 @@ pub enum Error {
     /// Error that occurs with normal database operation
     Operation(String),
     /// Error that breaks application integrity (Application error)
-    Application(String),
+    Application(ApplicationError),
     /// Unknown error with database
     Miscellaneous(String),
 }
-pub type Result<T> = std::result::Result<T, Error>;
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -21,6 +25,27 @@ impl std::fmt::Display for Error {
             Error::Operation(msg) => write!(f, "database operation error: {}", msg),
             Error::Application(msg) => write!(f, "application integrity error: {}", msg),
             Error::Miscellaneous(msg) => write!(f, "miscellaneous database error: {}", msg),
+        }
+    }
+}
+
+impl StdError for Error {}
+
+#[derive(Debug)]
+pub enum ApplicationError {
+    TaskNotFound,
+    TagNotFound,
+
+    /// WARN: do not use, prioritize better management of this
+    Misc(String),
+}
+
+impl Display for ApplicationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ApplicationError::TaskNotFound => write!(f, "task not found"),
+            ApplicationError::TagNotFound => write!(f, "tag not found"),
+            ApplicationError::Misc(msg) => write!(f, "unknown application error: {}", msg),
         }
     }
 }
@@ -45,12 +70,18 @@ impl From<sqlx::Error> for Error {
             sqlx::Error::InvalidArgument(msg) => Self::Operation(msg),
             sqlx::Error::Database(database_error) => {
                 if let Some(pg_code) = database_error.code() {
+                    eprintln!("UNCAUGHT INTEGRITY/TRIGGER ERROR: NEED TO FIX");
+
                     if pg_code == "P0001" {
                         // if error is from a custom raise in a function or trigger function
-                        return Self::Application(database_error.message().to_string());
+                        return Self::Application(ApplicationError::Misc(
+                            database_error.message().to_string(),
+                        ));
                     } else if pg_code.starts_with("23") {
                         // if error is related to integrity constraints
-                        return Self::Application(database_error.message().to_string());
+                        return Self::Application(ApplicationError::Misc(
+                            database_error.message().to_string(),
+                        ));
                     }
                 }
 

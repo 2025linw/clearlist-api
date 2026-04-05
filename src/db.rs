@@ -3,7 +3,7 @@ pub mod task;
 
 mod error;
 
-pub use error::{Error, Result};
+pub use error::{ApplicationError, Error, Result};
 
 use std::env;
 

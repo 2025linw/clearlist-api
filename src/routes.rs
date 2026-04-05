@@ -57,6 +57,7 @@ pub fn create_api_router() -> Router<AppState> {
         task::delete_handler,
         task::query_handler,
     )
+    .route("/{task_id}/restore", patch(task::restore_handler))
     .route("/{task_id}/complete", patch(task::complete_handler))
     .nest(
         "/{task_id}/tags",
@@ -64,7 +65,7 @@ pub fn create_api_router() -> Router<AppState> {
             .route("/", get(task::tag::query_handler))
             .route(
                 "/{tag_id}",
-                post(task::tag::create_handler).delete(task::tag::delete_handler),
+                patch(task::tag::create_handler).delete(task::tag::delete_handler),
             )
             .route("/", put(task::tag::update_handler)),
     );
