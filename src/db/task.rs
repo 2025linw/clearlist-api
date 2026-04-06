@@ -19,7 +19,15 @@ use super::{
 
 /// Options for querying tasks in database
 ///
-/// This contains filters for querying tasks
+/// This contains filters for querying tasks:
+///
+/// * `limit`: limits number of tasks to return (default: 50)
+/// * `offset`: number of tasks to skip (default: 0)
+/// * `sort_order`: order to return tasks (default: decreasing by updated_at)
+/// * `completed`: filter by completion status (default: false)
+/// * `deleted`: filter by deletion status (default: false)
+/// * `start_filter`: filter by start date
+/// * `deadline_filter`: filter by deadline
 #[derive(Default)]
 pub struct TaskQueryOptions {
     pub limit: Option<i64>,
@@ -39,12 +47,12 @@ pub struct TaskQueryOptions {
 /// # Arguments
 ///
 /// * `pool`: Database connection pool
-/// * `user_id`: User ID to query tasks
-/// * `opts`: Filter for query
+/// * `user_id`: User ID to query tasks for
+/// * `opts`: Query filter
 ///
 /// # Returns
 ///
-/// Filtered list of tasks created by user `user_id`
+/// List of tasks
 pub async fn query_tasks(
     pool: PgPool,
     user_id: Uuid,
@@ -52,6 +60,7 @@ pub async fn query_tasks(
 ) -> Result<Vec<Task>> {
     let mut conn = pool.acquire().await?;
     let tasks = query_tasks_inner(&mut conn, user_id, opts.unwrap_or_default()).await?;
+    conn.close().await?;
 
     Ok(tasks)
 }
@@ -166,12 +175,13 @@ async fn query_tasks_inner(
 ///
 /// # Returns
 ///
-/// If task exists, task wrapped in `Some`
+/// Task wrapped in `Some`, if task exists
 ///
-/// Otherwise, `None`
+/// `None`, if it does not exist
 pub async fn select_task(pool: PgPool, task_id: Uuid, user_id: Uuid) -> Result<Option<Task>> {
     let mut conn = pool.acquire().await?;
     let task = select_task_inner(&mut conn, task_id, user_id).await?;
+    conn.close().await?;
 
     Ok(task)
 }
@@ -201,7 +211,7 @@ async fn select_task_inner(
                 "SELECT tg.*
                 FROM app.task_tags tt
                 JOIN app.tags tg ON tt.tag_id = tg.id
-                WHERE tt.task_id = $1 AND tg.deleted_at IS NULL",
+                WHERE tt.task_id = $1",
             )
             .bind(task_id)
             .fetch_all(conn.as_mut())
@@ -224,7 +234,7 @@ async fn select_task_inner(
 ///
 /// # Returns
 ///
-/// Create task
+/// Created task
 pub async fn insert_task(pool: PgPool, user_id: Uuid, task: Task) -> Result<Task> {
     let mut tx = pool.begin().await?;
     let task = insert_task_inner(&mut tx, user_id, task).await?;
@@ -268,16 +278,14 @@ async fn insert_task_inner(conn: &mut PgConnection, user_id: Uuid, task: Task) -
 ///
 /// # Arguments
 ///
-/// * `conn`: Database connection pool
+/// * `pool`: Database connection pool
 /// * `task_id`: ID of task being updated
 /// * `user_id`: User ID of task owner
 /// * `task`: Updated task
 ///
 /// # Returns
 ///
-/// If task exists, updated task wrapped in `Some`
-///
-/// Otherwise, `None`
+/// Updated task
 pub async fn update_task(pool: PgPool, task_id: Uuid, user_id: Uuid, task: Task) -> Result<Task> {
     let mut tx = pool.begin().await?;
     let task = update_task_inner(&mut tx, task_id, user_id, task).await?;
@@ -335,22 +343,20 @@ async fn update_task_inner(
 
     Ok(select_task_inner(conn, task_id, user_id)
         .await?
-        .expect("task must exist to successfully update"))
+        .expect("task was just updated"))
 }
 
 /// Delete task from database
 ///
 /// # Arguments
 ///
-/// * `conn`: Database connection pool
+/// * `pool`: Database connection pool
 /// * `task_id`: ID of task being deleted
 /// * `user_id`: User ID of task owner
 ///
 /// # Returns
 ///
-/// If successful, unit
-///
-/// Otherwise, `None`
+/// Unit `()`
 pub async fn delete_task(pool: PgPool, task_id: Uuid, user_id: Uuid) -> Result<()> {
     let mut tx = pool.begin().await?;
     delete_task_inner(&mut tx, task_id, user_id).await?;
@@ -387,9 +393,7 @@ async fn delete_task_inner(conn: &mut PgConnection, task_id: Uuid, user_id: Uuid
 ///
 /// # Returns
 ///
-/// If successful, unit
-///
-/// Otherwise, `None`
+/// Unit `()`
 pub async fn restore_task(pool: PgPool, task_id: Uuid, user_id: Uuid) -> Result<()> {
     let mut tx = pool.begin().await?;
     restore_task_inner(&mut tx, task_id, user_id).await?;
@@ -428,9 +432,9 @@ async fn restore_task_inner(conn: &mut PgConnection, task_id: Uuid, user_id: Uui
 ///
 /// # Returns
 ///
-/// If task exists, returns completion status wrapped in `Some`
+/// `true`, if task was marked as complete
 ///
-/// Otherwise, `None`
+/// `false` if task was marked as not complete
 pub async fn complete_task(
     pool: PgPool,
     task_id: Uuid,
@@ -527,6 +531,7 @@ pub mod tag {
     pub async fn query_task_tags(pool: PgPool, task_id: Uuid, user_id: Uuid) -> Result<Vec<Tag>> {
         let mut conn = pool.acquire().await?;
         let tags = query_task_tags_inner(&mut conn, task_id, user_id).await?;
+        conn.close().await?;
 
         Ok(tags)
     }
@@ -544,7 +549,7 @@ pub mod tag {
                 FROM app.tags tg
                 JOIN app.task_tags tt ON tg.id = tt.tag_id
                 JOIN app.tasks t ON tt.task_id = t.id AND t.deleted_at IS NULL
-                WHERE tt.task_id = $1 AND t.created_by = $2 AND tg.deleted_at IS NULL",
+                WHERE tt.task_id = $1 AND t.created_by = $2",
         )
         .bind(task_id)
         .bind(user_id)
@@ -563,11 +568,7 @@ pub mod tag {
     ///
     /// # Returns
     ///
-    /// If successful, return unit
-    ///
-    /// If task does not exist, return 'TaskNotFound` error
-    ///
-    /// If tag does not exist, return 'TagNotFound' error
+    /// Unit `()`
     pub async fn add_task_tag(
         pool: PgPool,
         task_id: Uuid,
@@ -630,11 +631,7 @@ pub mod tag {
     ///
     /// # Returns
     ///
-    /// If successful, return unit
-    ///
-    /// If task does not exist, return `TaskNotFound` error
-    ///
-    /// Treats tags not assigned or that do not exist as 'deleted'
+    /// Unit `()`
     pub async fn delete_task_tag(
         pool: PgPool,
         task_id: Uuid,
@@ -681,11 +678,7 @@ pub mod tag {
     ///
     /// # Returns
     ///
-    /// If successful, return unit
-    ///
-    /// If task does not exist, return 'TaskNotFound` error
-    ///
-    /// If tag does not exist, return 'TagNotFound' error
+    /// Unit `()`
     pub async fn update_task_tags(
         pool: PgPool,
         task_id: Uuid,

@@ -70,7 +70,10 @@ impl From<sqlx::Error> for Error {
             sqlx::Error::InvalidArgument(msg) => Self::Operation(msg),
             sqlx::Error::Database(database_error) => {
                 if let Some(pg_code) = database_error.code() {
-                    eprintln!("UNCAUGHT INTEGRITY/TRIGGER ERROR: NEED TO FIX");
+                    eprintln!(
+                        "UNCAUGHT INTEGRITY/TRIGGER ERROR: NEED TO FIX: {}",
+                        database_error.message()
+                    );
 
                     if pg_code == "P0001" {
                         // if error is from a custom raise in a function or trigger function

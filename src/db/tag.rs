@@ -2,34 +2,66 @@
 //!
 //! `tag` contains collection of database functions for Tags
 
-use sqlx::{PgPool, QueryBuilder};
+use sqlx::{PgConnection, PgPool, QueryBuilder};
 use uuid::Uuid;
 
-use crate::com::model::Tag;
+use crate::com::model::{Tag, db::SortOrder};
 
-use super::{DEFAULT_LIMIT, MAX_LIMIT, Result, query_as_wrapper};
+use super::{ApplicationError, DEFAULT_LIMIT, Error, MAX_LIMIT, Result, query_as_wrapper};
 
+/// Options for query tags in database
+///
+/// This contains filters for querying tags:
+///
+/// * `limit`: limits number of tags to return (default: 50)
+/// * `offset`: number of tags to skip (default: 0)
+/// * `sort_order`: order to return tags (default: decreasing by updated_at)
+#[derive(Default)]
 pub struct TagQueryOptions {
-    pub user_id: Uuid,
-
     pub limit: Option<i64>,
     pub offset: Option<i64>,
-    pub deleted: bool,
+
+    pub sort_order: SortOrder,
 }
 
-pub async fn query_tags(conn: PgPool, opts: TagQueryOptions) -> Result<Vec<Tag>> {
+/// Query database for tags
+///
+/// # Arguments
+///
+/// * `pool`: Database connection pool
+/// * `user_id`: User ID to query tags for
+/// * `opts`: Query filter
+///
+/// # Returns
+///
+/// List of tags
+pub async fn query_tags(pool: PgPool, user_id: Uuid, opts: TagQueryOptions) -> Result<Vec<Tag>> {
+    let mut conn = pool.acquire().await?;
+    let tags = query_tags_inner(&mut conn, user_id, opts).await?;
+    conn.close().await?;
+
+    Ok(tags)
+}
+
+/// Internal function for `query_tags`
+///
+/// Only used internally
+async fn query_tags_inner(
+    conn: &mut PgConnection,
+    user_id: Uuid,
+    opts: TagQueryOptions,
+) -> Result<Vec<Tag>> {
     let limit = opts.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let offset = opts.offset.unwrap_or(0).max(0);
 
-    // TODO: later, allow filtering of tags by name search or category
     let mut builder = QueryBuilder::new("SELECT * FROM app.tags WHERE created_by = ");
-    builder.push_bind(opts.user_id);
-    if opts.deleted {
-        builder.push(" AND deleted_at IS NOT NULL");
-    } else {
-        builder.push(" AND deleted_at IS NULL");
-    }
-    builder.push(" ORDER BY updated_at DESC");
+    builder.push_bind(user_id);
+    match opts.sort_order {
+        SortOrder::UpdatedDesc => builder.push(" ORDER BY updated_at DESC"),
+        SortOrder::UpdatedAsc => builder.push(" ORDER BY updated_at ASC"),
+        SortOrder::CreatedDesc => builder.push(" ORDER BY created_at DESC"),
+        SortOrder::CreatedAsc => builder.push(" ORDER BY created_at ASC"),
+    };
     builder.push(" LIMIT ");
     builder.push_bind(limit);
     builder.push(" OFFSET ");
@@ -37,15 +69,75 @@ pub async fn query_tags(conn: PgPool, opts: TagQueryOptions) -> Result<Vec<Tag>>
 
     let query = builder.build_query_as::<Tag>();
 
-    let tags = query.fetch_all(&conn).await?;
-
-    Ok(tags)
+    Ok(query.fetch_all(conn.as_mut()).await?)
 }
 
-pub async fn insert_tag(conn: PgPool, user_id: Uuid, tag: Tag) -> Result<Uuid> {
-    let mut transaction = conn.begin().await?;
+/// Select tag from database
+///
+/// # Arguments
+///
+/// * `pool`: Database connection pool
+/// * `tag_id`: ID of tag being retrieved
+/// * `user_id`: User ID of tag owner
+///
+/// # Returns
+///
+/// Tag wrapped in `Some`, if tag exists
+///
+/// `None`, if it does not exist
+pub async fn select_tag(pool: PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Option<Tag>> {
+    let mut conn = pool.acquire().await?;
+    let tag = select_tag_inner(&mut conn, tag_id, user_id).await?;
+    conn.close().await?;
 
-    let tag_id = sqlx::query_scalar(
+    Ok(tag)
+}
+
+/// Internal function for `select_tag`
+///
+/// Only used internally
+async fn select_tag_inner(
+    conn: &mut PgConnection,
+    tag_id: Uuid,
+    user_id: Uuid,
+) -> Result<Option<Tag>> {
+    let tag_opt = query_as_wrapper::<Tag>(
+        "SELECT *
+        FROM app.tags
+        WHERE id = $1 AND created_by = $2",
+    )
+    .bind(tag_id)
+    .bind(user_id)
+    .fetch_optional(conn.as_mut())
+    .await?;
+
+    Ok(tag_opt)
+}
+
+/// Inserts tag into database
+///
+/// # Arguments
+///
+/// * `pool`: Database connection pool
+/// * `user_id`: User ID of tag owner
+/// * `tag`: Tag being inserted
+///
+/// # Returns
+///
+/// Created tag
+pub async fn insert_tag(pool: PgPool, user_id: Uuid, tag: Tag) -> Result<Tag> {
+    let mut tx = pool.begin().await?;
+    let tag = insert_tag_inner(&mut tx, user_id, tag).await?;
+    tx.commit().await?;
+
+    Ok(tag)
+}
+
+/// Internal function for `insert_tag`
+///
+/// Only used internally
+async fn insert_tag_inner(conn: &mut PgConnection, user_id: Uuid, tag: Tag) -> Result<Tag> {
+    let tag = query_as_wrapper::<Tag>(
         "INSERT INTO app.tags (label, category, created_by)
         VALUES ($1, $2, $3)
         RETURNING id",
@@ -53,85 +145,94 @@ pub async fn insert_tag(conn: PgPool, user_id: Uuid, tag: Tag) -> Result<Uuid> {
     .bind(tag.label)
     .bind(tag.category)
     .bind(user_id)
-    .fetch_one(&mut *transaction)
+    .fetch_one(conn.as_mut())
     .await?;
 
-    transaction.commit().await?;
-
-    Ok(tag_id)
+    Ok(tag)
 }
 
-pub async fn select_tag(conn: PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Option<Tag>> {
-    let tag_opt = query_as_wrapper::<Tag>(
-        "SELECT *
-        FROM app.tags
-        WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
-    )
-    .bind(tag_id)
-    .bind(user_id)
-    .fetch_optional(&conn)
-    .await?;
+/// Update tag in database
+///
+/// # Arguments
+///
+/// * `pool`: Database connection pool
+/// * `tag_id`: ID of tag being updated
+/// * `user_id` User ID of tag owner
+/// * `tag`: Updated tag
+///
+/// # Returns
+///
+/// Updated tag
+pub async fn update_tag(pool: PgPool, tag_id: Uuid, user_id: Uuid, tag: Tag) -> Result<Tag> {
+    let mut tx = pool.begin().await?;
+    let tag = update_tag_inner(&mut tx, tag_id, user_id, tag).await?;
+    tx.commit().await?;
 
-    match tag_opt {
-        None => Ok(None),
-        Some(tag) => Ok(Some(tag)),
-    }
+    Ok(tag)
 }
 
-pub async fn update_tag(
-    conn: PgPool,
+/// Internal function for `update_tag`
+///
+/// Only used internally
+async fn update_tag_inner(
+    conn: &mut PgConnection,
     tag_id: Uuid,
     user_id: Uuid,
     tag: Tag,
-) -> Result<Option<Tag>> {
-    let mut transaction = conn.begin().await?;
-
-    if sqlx::query(
+) -> Result<Tag> {
+    let tag_opt = query_as_wrapper::<Tag>(
         "UPDATE app.tags SET
         (updated_at, label, category) =
         (CURRENT_TIMESTAMP, $3, $4)
-        WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
+        WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL
+        RETURNING *",
     )
     .bind(tag_id)
     .bind(user_id)
     .bind(tag.label)
     .bind(tag.category)
-    .execute(&mut *transaction)
-    .await?
-    .rows_affected()
-        == 0
-    {
-        return Ok(None);
+    .fetch_optional(conn.as_mut())
+    .await?;
+
+    if tag_opt.is_none() {
+        return Err(Error::Application(ApplicationError::TagNotFound));
     }
 
-    transaction.commit().await?;
-
-    select_tag(conn, tag_id, user_id).await
+    Ok(select_tag_inner(conn, tag_id, user_id)
+        .await?
+        .expect("tag was just updated"))
 }
 
-pub async fn delete_tag(conn: PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Option<()>> {
-    let mut transaction = conn.begin().await?;
+/// Deleted tag from database
+///
+/// # Arguments
+///
+/// * `pool`: Database connection pool
+/// * `tag_id`: ID of tag being deleted
+/// * `user_id`: User ID of tag owner
+///
+/// # Returns
+///
+/// Unit `()`
+pub async fn delete_tag(pool: PgPool, tag_id: Uuid, user_id: Uuid) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    delete_tag_inner(&mut tx, tag_id, user_id).await?;
+    tx.commit().await?;
 
-    if sqlx::query(
-        "UPDATE app.tags SET
-        (updated_at, deleted_at) =
-        (CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
-    )
-    .bind(tag_id)
-    .bind(user_id)
-    .execute(&mut *transaction)
-    .await?
-    .rows_affected()
-        == 0
-    {
-        transaction.rollback().await?;
-        return Ok(None);
-    }
+    Ok(())
+}
 
-    transaction.commit().await?;
+/// Internal function for `delete_tag`
+///
+/// Only used internally
+async fn delete_tag_inner(conn: &mut PgConnection, tag_id: Uuid, user_id: Uuid) -> Result<()> {
+    sqlx::query("DELETE FROM app.tags WHERE id = $1 AND created_by = $2")
+        .bind(tag_id)
+        .bind(user_id)
+        .execute(conn.as_mut())
+        .await?;
 
-    Ok(Some(()))
+    Ok(())
 }
 
 // TODO: tag tests

@@ -2,6 +2,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+use crate::com::model::query::{SortBy, SortOrder};
+
 use super::query::Pagination;
 
 #[derive(Debug, Deserialize, Serialize, FromRow)]
@@ -17,8 +19,7 @@ pub struct Tag {
     pub category: Option<String>,
 
     // values associated with other functions/actions
-    #[serde(skip_deserializing)]
-    pub deleted_at: Option<chrono::DateTime<Utc>>,
+    // None
 
     // values that are created automatically by database
     #[serde(skip_deserializing)]
@@ -36,7 +37,12 @@ pub struct TagQuery {
     #[serde(flatten)]
     pub pagination: Pagination,
 
-    pub deleted: bool,
+    #[serde(default)]
+    #[serde(rename = "sort")]
+    pub sort_by: SortBy,
+    #[serde(default)]
+    #[serde(rename = "order")]
+    pub sort_order: SortOrder,
 }
 // TODO: when adding sort order control to TagQuery, we should return InvalidRequest if user tries to sort by a value that doesn't exist
 // Such as start date or deadline on Tag

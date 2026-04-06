@@ -63,10 +63,10 @@ pub enum SortBy {
 #[derive(Debug, Default, Deserialize)]
 pub enum SortOrder {
     #[serde(rename = "asc")]
-    Ascending,
+    OldestFirst,
     #[default]
     #[serde(rename = "desc")]
-    Descending,
+    NewestFirst,
 }
 
 #[derive(Debug, Deserialize)]

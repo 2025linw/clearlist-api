@@ -2,7 +2,9 @@ use chrono::NaiveDate;
 
 use crate::com::{
     error::Error,
-    model::query::{BracketInterval, DateFilter as DateFilterQuery},
+    model::query::{
+        BracketInterval, DateFilter as DateFilterQuery, SortBy, SortOrder as SortOrderQuery,
+    },
 };
 
 // TODO: add Exists and NotExists
@@ -178,6 +180,17 @@ pub enum SortOrder {
     UpdatedAsc,
     CreatedDesc,
     CreatedAsc,
+}
+
+impl From<(SortBy, SortOrderQuery)> for SortOrder {
+    fn from(value: (SortBy, SortOrderQuery)) -> Self {
+        match value {
+            (SortBy::Updated, SortOrderQuery::NewestFirst) => Self::UpdatedDesc,
+            (SortBy::Updated, SortOrderQuery::OldestFirst) => Self::UpdatedAsc,
+            (SortBy::Created, SortOrderQuery::NewestFirst) => Self::CreatedDesc,
+            (SortBy::Created, SortOrderQuery::OldestFirst) => Self::CreatedAsc,
+        }
+    }
 }
 
 #[cfg(test)]

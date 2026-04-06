@@ -11,8 +11,8 @@ use crate::{
     AppState,
     com::model::{
         Task, TaskQuery,
-        db::{DateFilter, SortOrder as SortOrderDB},
-        query::{Completed, Pagination, SortBy, SortOrder as SortOrderQuery},
+        db::DateFilter,
+        query::{Completed, Pagination},
     },
     db::task::{
         TaskQueryOptions, complete_task, delete_task, insert_task, query_tasks, restore_task,
@@ -52,21 +52,11 @@ pub async fn query_handler(
     } else {
         None
     };
-    let sort_order = match sort_by {
-        SortBy::Created => match sort_order {
-            SortOrderQuery::Ascending => SortOrderDB::CreatedAsc,
-            SortOrderQuery::Descending => SortOrderDB::CreatedDesc,
-        },
-        SortBy::Updated => match sort_order {
-            SortOrderQuery::Ascending => SortOrderDB::UpdatedAsc,
-            SortOrderQuery::Descending => SortOrderDB::UpdatedDesc,
-        },
-    };
 
     let opts = TaskQueryOptions {
         limit: Some(limit),
         offset: Some(offset),
-        sort_order,
+        sort_order: (sort_by, sort_order).into(),
         completed,
         deleted,
         start_filter,
@@ -88,13 +78,13 @@ pub async fn create_handler(
     State(data): State<AppState>,
     Json(body): Json<Task>,
 ) -> Result<Response, ErrorResponse> {
-    let task_id = insert_task(data.db.pool(), session.user_id, body)
+    let task = insert_task(data.db.pool(), session.user_id, body)
         .await
         .map_err(Error::from)?;
 
     Ok(Response::new(StatusCode::CREATED)
         .status(SUCCESS)
-        .data(json!({"taskId": task_id})))
+        .data(json!(task)))
 }
 
 pub async fn retrieve_handler(
