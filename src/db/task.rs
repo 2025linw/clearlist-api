@@ -354,6 +354,10 @@ async fn update_task_inner(
 /// This function is idempotent:
 /// multiple calls will only delete the first time
 ///
+/// If the task doesn't exist, return as if success.
+///
+/// Idea: 'make sure client can not see task'
+///
 /// # Arguments
 ///
 /// * `pool`: Database connection pool
@@ -394,6 +398,11 @@ async fn delete_task_inner(conn: &mut PgConnection, task_id: Uuid, user_id: Uuid
 /// This function is idempotent:
 /// multiple calls will only restore the first time
 ///
+/// As opposed to `delete`, this function will error if task does not exist.
+///
+/// Idea: 'make sure client can see task',
+/// but if task does not exist, they never can see it
+///
 /// # Arguments
 ///
 /// * `pool`: Database connection pool
@@ -415,6 +424,17 @@ pub async fn restore_task(pool: PgPool, task_id: Uuid, user_id: Uuid) -> Result<
 ///
 /// Only used internally
 async fn restore_task_inner(conn: &mut PgConnection, task_id: Uuid, user_id: Uuid) -> Result<()> {
+    // task existence (including deleted)
+    if sqlx::query("SELECT 1 FROM app.tasks WHERE id = $1 AND created_by = $2")
+        .bind(task_id)
+        .bind(user_id)
+        .fetch_one(conn.as_mut())
+        .await
+        .is_err()
+    {
+        return Err(Error::Application(ApplicationError::TaskNotFound));
+    }
+
     sqlx::query(
         "UPDATE app.tasks SET
         (updated_at, deleted_at) =
@@ -736,7 +756,7 @@ pub mod tag {
 mod test_helpers {
     use std::env;
 
-    use chrono::{DateTime, Utc};
+    use chrono::{DateTime, SubsecRound, Utc};
     use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
     use tokio::sync::OnceCell;
     use uuid::Uuid;
@@ -796,7 +816,7 @@ mod test_helpers {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
         )
         .bind(task.title.clone())
-        .bind(task.notes)
+        .bind(task.notes.clone())
         .bind(task.start.as_ref().map(|s| s.as_on()))
         .bind(task.start.as_ref().map(|s| s.as_at()))
         .bind(task.deadline)
@@ -819,7 +839,55 @@ mod test_helpers {
             .unwrap();
         }
 
-        get_task(conn, task_id, Uuid::nil()).await
+        let ret_task = get_task(conn, task_id, Uuid::nil()).await;
+        assert_eq!(ret_task.title, task.title, "title does not match input");
+        assert_eq!(ret_task.notes, task.notes, "notes does not match input");
+        assert_eq!(ret_task.start, task.start, "start does not match input");
+        assert_eq!(
+            ret_task.deadline, task.deadline,
+            "deadline does not match input"
+        );
+        assert_eq!(
+            ret_task.tags.len(),
+            task.tags.len(),
+            "number of tags does not match input"
+        );
+        assert_eq!(
+            ret_task
+                .tags
+                .iter()
+                .map(|tag| tag.id)
+                .collect::<Vec<Uuid>>(),
+            task.tags.iter().map(|tag| tag.id).collect::<Vec<Uuid>>(),
+            "tags don't match input"
+        );
+        assert_eq!(
+            ret_task.created_by,
+            Uuid::nil(),
+            "created_by does not match input"
+        );
+        assert_eq!(
+            ret_task.completed_at,
+            completed_at.map(|date| date.trunc_subsecs(PG_SUBSEC_PREC)),
+            "completed_at does not match input"
+        );
+        assert_eq!(
+            ret_task.deleted_at,
+            deleted_at.map(|date| date.trunc_subsecs(PG_SUBSEC_PREC)),
+            "deleted_at does not match input"
+        );
+        assert_eq!(
+            ret_task.created_at,
+            created_at.trunc_subsecs(PG_SUBSEC_PREC),
+            "created_at does not match input"
+        );
+        assert_eq!(
+            ret_task.updated_at,
+            updated_at.trunc_subsecs(PG_SUBSEC_PREC),
+            "updated_at does not match input"
+        );
+
+        ret_task
     }
 
     pub async fn get_task(conn: &mut PgConnection, task_id: Uuid, user_id: Uuid) -> Task {
@@ -858,8 +926,8 @@ mod test_helpers {
             "INSERT INTO app.tags (label, category, created_by, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5) RETURNING id",
         )
-        .bind(tag.label)
-        .bind(tag.category)
+        .bind(tag.label.clone())
+        .bind(tag.category.clone())
         .bind(Uuid::nil())
         .bind(created_at)
         .bind(updated_at)
@@ -867,7 +935,29 @@ mod test_helpers {
         .await
         .unwrap();
 
-        get_tag(conn, tag_id, Uuid::nil()).await
+        let ret_tag = get_tag(conn, tag_id, Uuid::nil()).await;
+        assert_eq!(ret_tag.label, tag.label, "label does not match input");
+        assert_eq!(
+            ret_tag.category, tag.category,
+            "category does not match input"
+        );
+        assert_eq!(
+            ret_tag.created_by,
+            Uuid::nil(),
+            "created_by does not match input"
+        );
+        assert_eq!(
+            ret_tag.created_at,
+            created_at.trunc_subsecs(PG_SUBSEC_PREC),
+            "created_at does not match input"
+        );
+        assert_eq!(
+            ret_tag.updated_at,
+            updated_at.trunc_subsecs(PG_SUBSEC_PREC),
+            "updated_at does not match input"
+        );
+
+        ret_tag
     }
 
     pub async fn get_tag(conn: &mut PgConnection, tag_id: Uuid, user_id: Uuid) -> Tag {
@@ -895,11 +985,11 @@ mod query_tests {
 
     use crate::{
         com::model::{
-            Tag, Task,
+            Tag, Task, TaskIntermediate,
             db::{DateBound, DateFilter, SortOrder},
             util::Start,
         },
-        db::MAX_LIMIT,
+        db::{MAX_LIMIT, query_as_wrapper},
     };
 
     use super::test_helpers::{create_test_tag, create_test_task, get_pool};
@@ -923,6 +1013,9 @@ mod query_tests {
     }
 
     async fn create_test_data(tx: &mut PgConnection) {
+        let mut num_tasks = 0;
+        let mut num_tags = 0;
+
         // Create empty tasks
         let base_time = Utc::now();
         for i in 1..=10 {
@@ -943,6 +1036,7 @@ mod query_tests {
                 base_time + Duration::from_hours(1) + Duration::from_secs(60 - i),
             )
             .await;
+            num_tasks += 1;
         }
 
         // Create start date tasks
@@ -967,6 +1061,7 @@ mod query_tests {
                 base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
             )
             .await;
+            num_tasks += 1;
         }
 
         // Create start datetime tasks
@@ -994,6 +1089,7 @@ mod query_tests {
                 base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
             )
             .await;
+            num_tasks += 1;
         }
 
         // Create deadline tasks
@@ -1018,6 +1114,7 @@ mod query_tests {
                 base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
             )
             .await;
+            num_tasks += 1;
         }
 
         // Create completed tasks
@@ -1042,6 +1139,7 @@ mod query_tests {
                 base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
             )
             .await;
+            num_tasks += 1;
         }
 
         // Create deleted tasks
@@ -1066,6 +1164,7 @@ mod query_tests {
                 base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
             )
             .await;
+            num_tasks += 1;
         }
 
         // Create priority tags
@@ -1103,6 +1202,7 @@ mod query_tests {
             base_time,
         )
         .await;
+        num_tags += 3;
 
         // Create priority tasks
         let base_time = Utc::now() + Duration::from_hours(6);
@@ -1127,6 +1227,7 @@ mod query_tests {
                 base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
             )
             .await;
+            num_tasks += 1;
         }
 
         // Create workflow tags
@@ -1175,6 +1276,7 @@ mod query_tests {
             base_time,
         )
         .await;
+        num_tags += 4;
 
         // Create workflow tasks
         for i in 1..=16 {
@@ -1199,7 +1301,19 @@ mod query_tests {
                 base_time + Duration::from_hours(1) + Duration::from_secs(60 - i as u64),
             )
             .await;
+            num_tasks += 1;
         }
+
+        let tasks = query_as_wrapper::<TaskIntermediate>("SELECT * FROM app.tasks")
+            .fetch_all(tx.as_mut())
+            .await
+            .unwrap();
+        assert_eq!(tasks.len(), num_tasks);
+        let tags = query_as_wrapper::<Tag>("SELECT * FROM app.tags")
+            .fetch_all(tx.as_mut())
+            .await
+            .unwrap();
+        assert_eq!(tags.len(), num_tags);
     }
 
     #[test]
@@ -1215,7 +1329,6 @@ mod query_tests {
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
         let tasks = res.unwrap();
-        assert!(!tasks.is_empty(), "must have data to test on");
 
         // default sort is updated_at descending
         assert!(tasks.is_sorted_by(|a, b| a.updated_at >= b.updated_at));
@@ -1240,7 +1353,6 @@ mod query_tests {
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
         let tasks = res.unwrap();
-        assert!(!tasks.is_empty(), "must have data to test on");
 
         // default sort is updated_at descending
         assert!(tasks.is_sorted_by(|a, b| a.updated_at <= b.updated_at));
@@ -1265,7 +1377,6 @@ mod query_tests {
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
         let tasks = res.unwrap();
-        assert!(!tasks.is_empty(), "must have data to test on");
 
         // default sort is updated_at descending
         assert!(tasks.is_sorted_by(|a, b| a.created_at >= b.created_at));
@@ -1290,7 +1401,6 @@ mod query_tests {
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
         let tasks = res.unwrap();
-        assert!(!tasks.is_empty(), "must have data to test on");
 
         // default sort is updated_at descending
         assert!(tasks.is_sorted_by(|a, b| a.created_at <= b.created_at));
@@ -1316,7 +1426,6 @@ mod query_tests {
             let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
             assert!(res.is_ok());
             let tasks = res.unwrap();
-            assert!(!tasks.is_empty(), "must have data to test on");
 
             for task in tasks {
                 // no deleted tasks
@@ -1350,7 +1459,11 @@ mod query_tests {
         let mut opts = create_default_opts();
         opts.limit = Some(i64::MAX);
 
-        assert!(query_tasks_inner(&mut tx, Uuid::nil(), opts).await.is_ok());
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+
+        let tasks = res.unwrap();
+        assert!(tasks.len() <= MAX_LIMIT as usize);
     }
 
     #[test]
@@ -1375,6 +1488,39 @@ mod query_tests {
         opts.limit = Some(i64::MIN);
 
         assert!(query_tasks_inner(&mut tx, Uuid::nil(), opts).await.is_ok());
+    }
+
+    #[test]
+    async fn limit_with_lots_of_data() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        // create lots of test data
+        for i in 0..400 {
+            create_test_task(
+                &mut tx,
+                Task {
+                    title: format!("Test Task {}", i),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await;
+        }
+
+        let mut opts = create_default_opts();
+        opts.limit = Some(i64::MAX);
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+
+        let tasks = res.unwrap();
+        assert_eq!(tasks.len(), MAX_LIMIT as usize);
     }
 
     #[test]
@@ -3642,7 +3788,6 @@ mod delete_tests {
 
         let task =
             create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
-        assert!(task.deleted_at.is_none());
 
         let res = delete_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
@@ -3673,10 +3818,6 @@ mod delete_tests {
             base_time,
         )
         .await;
-        assert!(
-            task.deleted_at.is_some(),
-            "task should have been initialized as deleted"
-        );
 
         let res = delete_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
@@ -3703,7 +3844,6 @@ mod delete_tests {
 
         let task =
             create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
-        assert!(task.deleted_at.is_none());
 
         let res = delete_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
@@ -3747,13 +3887,16 @@ mod delete_tests {
 
 #[cfg(test)]
 mod restore_tests {
-    use chrono::{SubsecRound, Utc};
+    use chrono::Utc;
     use tokio::test;
     use uuid::Uuid;
 
     use crate::{
         com::model::Task,
-        db::task::test_helpers::{PG_SUBSEC_PREC, create_test_task, get_pool, get_task},
+        db::{
+            ApplicationError, Error,
+            task::test_helpers::{create_test_task, get_pool, get_task},
+        },
     };
 
     use super::restore_task_inner;
@@ -3774,10 +3917,6 @@ mod restore_tests {
             base_time,
         )
         .await;
-        assert!(task.deleted_at.is_some());
-        if let Some(date) = task.deleted_at {
-            assert_eq!(date, base_time.trunc_subsecs(PG_SUBSEC_PREC));
-        }
 
         let res = restore_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
@@ -3798,7 +3937,6 @@ mod restore_tests {
 
         let task =
             create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
-        assert!(task.deleted_at.is_none());
 
         let res = restore_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
@@ -3832,32 +3970,28 @@ mod restore_tests {
             base_time,
         )
         .await;
-        assert!(task.deleted_at.is_some());
-        if let Some(date) = task.deleted_at {
-            assert_eq!(date, base_time.trunc_subsecs(PG_SUBSEC_PREC));
-        }
 
         let res = restore_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
 
         assert_eq!(res.unwrap(), (), "restore should return unit '()'");
 
-        let first_delete_task = get_task(&mut tx, task.id, Uuid::nil()).await;
-        assert_ne!(first_delete_task.updated_at, task.updated_at);
-        assert!(first_delete_task.deleted_at.is_none());
+        let first_restore_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        assert_ne!(first_restore_task.updated_at, task.updated_at);
+        assert!(first_restore_task.deleted_at.is_none());
 
         let res = restore_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
 
         assert_eq!(res.unwrap(), (), "restore should return unit '()'");
 
-        let second_delete_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        let second_restore_task = get_task(&mut tx, task.id, Uuid::nil()).await;
         assert_eq!(
-            second_delete_task.updated_at, first_delete_task.updated_at,
+            second_restore_task.updated_at, first_restore_task.updated_at,
             "updated_at should not be updated if the task was already restored"
         );
         assert_eq!(
-            second_delete_task.deleted_at, first_delete_task.deleted_at,
+            second_restore_task.deleted_at, first_restore_task.deleted_at,
             "deleted_at should not be updated if the task was already restore"
         );
     }
@@ -3868,9 +4002,10 @@ mod restore_tests {
         let mut tx = pool.begin().await.unwrap();
 
         let res = restore_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil()).await;
-        assert!(res.is_ok());
-
-        assert_eq!(res.unwrap(), (), "restore should return unit '()'");
+        assert!(matches!(
+            res,
+            Err(Error::Application(ApplicationError::TaskNotFound))
+        ));
     }
 }
 
