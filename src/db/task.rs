@@ -742,8 +742,8 @@ mod test_helpers {
     use uuid::Uuid;
 
     use crate::{
-        com::model::{Tag, Task},
-        db::task::update_task_tags_inner,
+        com::model::{Tag, Task, TaskIntermediate},
+        db::{query_as_wrapper, task::update_task_tags_inner},
         run_migration,
     };
 
@@ -783,19 +783,19 @@ mod test_helpers {
         .await
     }
 
-    pub async fn insert_test_task(
+    pub async fn create_test_task(
         conn: &mut PgConnection,
         task: Task,
         completed_at: Option<DateTime<Utc>>,
         deleted_at: Option<DateTime<Utc>>,
         created_at: DateTime<Utc>,
         updated_at: DateTime<Utc>,
-    ) -> Uuid {
+    ) -> Task {
         let task_id = sqlx::query_scalar(
             "INSERT INTO app.tasks (title, notes, start_on, start_at, deadline, created_by, completed_at, deleted_at, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
         )
-        .bind(task.title)
+        .bind(task.title.clone())
         .bind(task.notes)
         .bind(task.start.as_ref().map(|s| s.as_on()))
         .bind(task.start.as_ref().map(|s| s.as_at()))
@@ -819,27 +819,66 @@ mod test_helpers {
             .unwrap();
         }
 
-        task_id
+        get_task(conn, task_id, Uuid::nil()).await
     }
 
-    pub async fn insert_test_tag(
+    pub async fn get_task(conn: &mut PgConnection, task_id: Uuid, user_id: Uuid) -> Task {
+        let mut task = query_as_wrapper::<TaskIntermediate>(
+            "SELECT *
+                FROM app.tasks
+                WHERE id = $1 AND created_by = $2",
+        )
+        .bind(task_id)
+        .bind(user_id)
+        .fetch_one(conn.as_mut())
+        .await
+        .unwrap();
+
+        task.tags = query_as_wrapper::<Tag>(
+            "SELECT tg.*
+                FROM app.task_tags tt
+                JOIN app.tags tg ON tt.tag_id = tg.id
+                WHERE tt.task_id = $1",
+        )
+        .bind(task_id)
+        .fetch_all(conn.as_mut())
+        .await
+        .unwrap();
+
+        task.into()
+    }
+
+    pub async fn create_test_tag(
         conn: &mut PgConnection,
         tag: Tag,
-        deleted_at: Option<DateTime<Utc>>,
         created_at: DateTime<Utc>,
         updated_at: DateTime<Utc>,
-    ) -> Uuid {
-        sqlx::query_scalar(
-            "INSERT INTO app.tags (label, category, created_by, deleted_at, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    ) -> Tag {
+        let tag_id = sqlx::query_scalar(
+            "INSERT INTO app.tags (label, category, created_by, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5) RETURNING id",
         )
         .bind(tag.label)
         .bind(tag.category)
         .bind(Uuid::nil())
-        .bind(deleted_at)
         .bind(created_at)
         .bind(updated_at)
-        .fetch_one(conn)
+        .fetch_one(conn.as_mut())
+        .await
+        .unwrap();
+
+        get_tag(conn, tag_id, Uuid::nil()).await
+    }
+
+    pub async fn get_tag(conn: &mut PgConnection, tag_id: Uuid, user_id: Uuid) -> Tag {
+        query_as_wrapper::<Tag>(
+            "SELECT *
+        FROM app.tags
+        WHERE id = $1 AND created_by = $2",
+        )
+        .bind(tag_id)
+        .bind(user_id)
+        .fetch_one(conn.as_mut())
         .await
         .unwrap()
     }
@@ -860,13 +899,11 @@ mod query_tests {
             db::{DateBound, DateFilter, SortOrder},
             util::Start,
         },
-        db::{MAX_LIMIT, task::TaskQueryOptions},
+        db::MAX_LIMIT,
     };
 
-    use super::{
-        query_tasks_inner,
-        test_helpers::{get_pool, insert_test_tag, insert_test_task},
-    };
+    use super::test_helpers::{create_test_tag, create_test_task, get_pool};
+    use super::{TaskQueryOptions, query_tasks_inner};
 
     const DATE_YEAR: i32 = 2027;
     const START_MONTH: u32 = 1;
@@ -897,7 +934,7 @@ mod query_tests {
                 ..Default::default()
             };
 
-            insert_test_task(
+            create_test_task(
                 tx,
                 task,
                 None,
@@ -921,7 +958,7 @@ mod query_tests {
                 ..Default::default()
             };
 
-            insert_test_task(
+            create_test_task(
                 tx,
                 task,
                 None,
@@ -948,7 +985,7 @@ mod query_tests {
                 ..Default::default()
             };
 
-            insert_test_task(
+            create_test_task(
                 tx,
                 task,
                 None,
@@ -972,7 +1009,7 @@ mod query_tests {
                 ..Default::default()
             };
 
-            insert_test_task(
+            create_test_task(
                 tx,
                 task,
                 None,
@@ -996,7 +1033,7 @@ mod query_tests {
                 ..Default::default()
             };
 
-            insert_test_task(
+            create_test_task(
                 tx,
                 task,
                 Some(base_time + Duration::from_hours(2) + Duration::from_secs(i as u64)),
@@ -1020,7 +1057,7 @@ mod query_tests {
                 ..Default::default()
             };
 
-            insert_test_task(
+            create_test_task(
                 tx,
                 task,
                 None,
@@ -1033,38 +1070,35 @@ mod query_tests {
 
         // Create priority tags
         let base_time = Utc::now() + Duration::from_hours(6);
-        let low_tag_id = insert_test_tag(
+        let low_tag = create_test_tag(
             tx,
             Tag {
                 label: "Low".to_string(),
                 category: Some("Priority".to_string()),
                 ..Default::default()
             },
-            None,
             base_time,
             base_time,
         )
         .await;
-        let mid_tag_id = insert_test_tag(
+        let mid_tag = create_test_tag(
             tx,
             Tag {
                 label: "Mid".to_string(),
                 category: Some("Priority".to_string()),
                 ..Default::default()
             },
-            None,
             base_time,
             base_time,
         )
         .await;
-        let high_tag_id = insert_test_tag(
+        let high_tag = create_test_tag(
             tx,
             Tag {
                 label: "High".to_string(),
                 category: Some("Priority".to_string()),
                 ..Default::default()
             },
-            None,
             base_time,
             base_time,
         )
@@ -1073,21 +1107,18 @@ mod query_tests {
         // Create priority tasks
         let base_time = Utc::now() + Duration::from_hours(6);
         for i in 1..=12 {
-            let tag_id = match i {
-                1..=4 => low_tag_id,
-                5..=8 => mid_tag_id,
-                9..=12 => high_tag_id,
+            let tag = match i {
+                1..=4 => low_tag.clone(),
+                5..=8 => mid_tag.clone(),
+                9..=12 => high_tag.clone(),
                 _ => unreachable!(),
             };
 
-            insert_test_task(
+            create_test_task(
                 tx,
                 Task {
                     title: format!("Test Tag Prio{}", i),
-                    tags: vec![Tag {
-                        id: tag_id,
-                        ..Default::default()
-                    }],
+                    tags: vec![tag],
                     ..Default::default()
                 },
                 None,
@@ -1100,50 +1131,46 @@ mod query_tests {
 
         // Create workflow tags
         let base_time = Utc::now() + Duration::from_hours(6);
-        let backlog_tag_id = insert_test_tag(
+        let backlog_tag = create_test_tag(
             tx,
             Tag {
                 label: "Backlog".to_string(),
                 category: Some("Workflow".to_string()),
                 ..Default::default()
             },
-            None,
             base_time,
             base_time,
         )
         .await;
-        let todo_tag_id = insert_test_tag(
+        let todo_tag = create_test_tag(
             tx,
             Tag {
                 label: "Todo".to_string(),
                 category: Some("Workflow".to_string()),
                 ..Default::default()
             },
-            None,
             base_time,
             base_time,
         )
         .await;
-        let in_progress_tag_id = insert_test_tag(
+        let in_progress_tag = create_test_tag(
             tx,
             Tag {
                 label: "In-progress".to_string(),
                 category: Some("Workflow".to_string()),
                 ..Default::default()
             },
-            None,
             base_time,
             base_time,
         )
         .await;
-        let completed_tag_id = insert_test_tag(
+        let completed_tag = create_test_tag(
             tx,
             Tag {
                 label: "Completed".to_string(),
                 category: Some("Workflow".to_string()),
                 ..Default::default()
             },
-            None,
             base_time,
             base_time,
         )
@@ -1151,22 +1178,19 @@ mod query_tests {
 
         // Create workflow tasks
         for i in 1..=16 {
-            let tag_id = match i {
-                1..=4 => backlog_tag_id,
-                5..=8 => todo_tag_id,
-                9..=12 => in_progress_tag_id,
-                13..=16 => completed_tag_id,
+            let tag = match i {
+                1..=4 => backlog_tag.clone(),
+                5..=8 => todo_tag.clone(),
+                9..=12 => in_progress_tag.clone(),
+                13..=16 => completed_tag.clone(),
                 _ => unreachable!(),
             };
 
-            insert_test_task(
+            create_test_task(
                 tx,
                 Task {
                     title: format!("Test Tag Work{}", i),
-                    tags: vec![Tag {
-                        id: tag_id,
-                        ..Default::default()
-                    }],
+                    tags: vec![tag],
                     ..Default::default()
                 },
                 None,
@@ -2160,15 +2184,10 @@ mod select_tests {
     use tokio::test;
     use uuid::Uuid;
 
-    use crate::{
-        com::model::{Tag, Task},
-        db::task::test_helpers::insert_test_tag,
-    };
+    use crate::com::model::{Tag, Task};
 
-    use super::{
-        select_task_inner,
-        test_helpers::{get_pool, insert_test_task},
-    };
+    use super::select_task_inner;
+    use super::test_helpers::{create_test_tag, create_test_task, get_pool};
 
     #[test]
     async fn base_select() {
@@ -2177,7 +2196,7 @@ mod select_tests {
 
         let base_time = Utc::now();
 
-        let task_id = insert_test_task(
+        let task = create_test_task(
             &mut tx,
             Task::default(),
             None,
@@ -2187,14 +2206,14 @@ mod select_tests {
         )
         .await;
 
-        let res = select_task_inner(&mut tx, task_id, Uuid::nil()).await;
+        let res = select_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
 
         let task_opt = res.unwrap();
         assert!(task_opt.is_some());
 
         let task = task_opt.unwrap();
-        assert_eq!(task.id, task_id);
+        assert_eq!(task.id, task.id);
         assert_eq!(task.title, "");
         assert!(task.notes.is_none());
         assert!(task.start.is_none());
@@ -2213,7 +2232,7 @@ mod select_tests {
 
         let mut seen_ids = HashSet::new();
         for _ in 0..10 {
-            let task_id = insert_test_task(
+            let task = create_test_task(
                 &mut tx,
                 Task::default(),
                 None,
@@ -2223,7 +2242,7 @@ mod select_tests {
             )
             .await;
 
-            assert!(seen_ids.insert(task_id), "duplicate task encountered");
+            assert!(seen_ids.insert(task.id), "duplicate task encountered");
         }
         assert!(!seen_ids.is_empty());
 
@@ -2253,27 +2272,23 @@ mod select_tests {
 
         let base_time = Utc::now();
 
-        let tag_id = insert_test_tag(
+        let tag = create_test_tag(
             &mut tx,
             Tag {
                 label: "Test Tag".to_string(),
                 category: Some("Testing".to_string()),
                 ..Default::default()
             },
-            None,
             base_time,
             base_time,
         )
         .await;
 
-        let task_id = insert_test_task(
+        let task = create_test_task(
             &mut tx,
             Task {
                 title: "Test Task".to_string(),
-                tags: vec![Tag {
-                    id: tag_id,
-                    ..Default::default()
-                }],
+                tags: vec![tag],
                 ..Default::default()
             },
             None,
@@ -2283,7 +2298,7 @@ mod select_tests {
         )
         .await;
 
-        let res = select_task_inner(&mut tx, task_id, Uuid::nil()).await;
+        let res = select_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
 
         let task_opt = res.unwrap();
@@ -2303,43 +2318,45 @@ mod select_tests {
 
         let base_time = Utc::now();
 
-        let tag_1 = Tag {
-            label: "Test Tag 1".to_string(),
-            category: Some("Testing".to_string()),
-            ..Default::default()
-        };
-        let tag_1_id = insert_test_tag(&mut tx, tag_1.clone(), None, base_time, base_time).await;
-        let tag_2 = Tag {
-            label: "Test Tag 2".to_string(),
-            category: Some("Testing".to_string()),
-            ..Default::default()
-        };
-        let tag_2_id = insert_test_tag(&mut tx, tag_2.clone(), None, base_time, base_time).await;
-        let tag_3 = Tag {
-            label: "Test Tag 3".to_string(),
-            category: Some("Testing".to_string()),
-            ..Default::default()
-        };
-        let tag_3_id = insert_test_tag(&mut tx, tag_3.clone(), None, base_time, base_time).await;
+        let tag_1 = create_test_tag(
+            &mut tx,
+            Tag {
+                label: "Test Tag 1".to_string(),
+                category: Some("Testing".to_string()),
+                ..Default::default()
+            },
+            base_time,
+            base_time,
+        )
+        .await;
+        let tag_2 = create_test_tag(
+            &mut tx,
+            Tag {
+                label: "Test Tag 2".to_string(),
+                category: Some("Testing".to_string()),
+                ..Default::default()
+            },
+            base_time,
+            base_time,
+        )
+        .await;
+        let tag_3 = create_test_tag(
+            &mut tx,
+            Tag {
+                label: "Test Tag 3".to_string(),
+                category: Some("Testing".to_string()),
+                ..Default::default()
+            },
+            base_time,
+            base_time,
+        )
+        .await;
 
-        let task_id = insert_test_task(
+        let task = create_test_task(
             &mut tx,
             Task {
                 title: "Test Task".to_string(),
-                tags: vec![
-                    Tag {
-                        id: tag_1_id,
-                        ..Default::default()
-                    },
-                    Tag {
-                        id: tag_2_id,
-                        ..Default::default()
-                    },
-                    Tag {
-                        id: tag_3_id,
-                        ..Default::default()
-                    },
-                ],
+                tags: vec![tag_1, tag_2, tag_3],
                 ..Default::default()
             },
             None,
@@ -2349,7 +2366,7 @@ mod select_tests {
         )
         .await;
 
-        let res = select_task_inner(&mut tx, task_id, Uuid::nil()).await;
+        let res = select_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
 
         let task_opt = res.unwrap();
@@ -2373,7 +2390,7 @@ mod select_tests {
 
         let mut seen_ids = HashSet::new();
         for _ in 0..10 {
-            let task_id = insert_test_task(
+            let task = create_test_task(
                 &mut tx,
                 Task::default(),
                 None,
@@ -2383,7 +2400,7 @@ mod select_tests {
             )
             .await;
 
-            assert!(seen_ids.insert(task_id), "duplicate task encountered");
+            assert!(seen_ids.insert(task.id), "duplicate task encountered");
         }
         assert!(!seen_ids.is_empty());
 
@@ -2417,10 +2434,8 @@ mod insert_tests {
 
     use crate::com::model::{Tag, Task, util::Start};
 
-    use super::{
-        insert_task_inner,
-        test_helpers::{PG_SUBSEC_PREC, get_pool, insert_test_tag},
-    };
+    use super::insert_task_inner;
+    use super::test_helpers::{PG_SUBSEC_PREC, create_test_tag, get_pool};
 
     #[test]
     async fn base_insert() {
@@ -2439,6 +2454,11 @@ mod insert_tests {
 
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
+
+        assert_eq!(
+            task.created_at, task.updated_at,
+            "created_at and updated_at should be the same when created"
+        );
     }
 
     #[test]
@@ -2468,6 +2488,11 @@ mod insert_tests {
 
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
+
+        assert_eq!(
+            task.created_at, task.updated_at,
+            "created_at and updated_at should be the same when created"
+        );
     }
 
     #[test]
@@ -2501,6 +2526,11 @@ mod insert_tests {
 
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
+
+        assert_eq!(
+            task.created_at, task.updated_at,
+            "created_at and updated_at should be the same when created"
+        );
     }
 
     #[test]
@@ -2531,6 +2561,11 @@ mod insert_tests {
 
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
+
+        assert_eq!(
+            task.created_at, task.updated_at,
+            "created_at and updated_at should be the same when created"
+        );
     }
 
     #[test]
@@ -2564,6 +2599,11 @@ mod insert_tests {
 
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
+
+        assert_eq!(
+            task.created_at, task.updated_at,
+            "created_at and updated_at should be the same when created"
+        );
     }
 
     #[test]
@@ -2594,6 +2634,11 @@ mod insert_tests {
 
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
+
+        assert_eq!(
+            task.created_at, task.updated_at,
+            "created_at and updated_at should be the same when created"
+        );
     }
 
     #[test]
@@ -2603,14 +2648,13 @@ mod insert_tests {
 
         let base_time = Utc::now();
 
-        let tag_id = insert_test_tag(
+        let tag = create_test_tag(
             &mut tx,
             Tag {
                 label: "Test Tag".to_string(),
                 category: Some("Testing".to_string()),
                 ..Default::default()
             },
-            None,
             base_time,
             base_time,
         )
@@ -2620,10 +2664,7 @@ mod insert_tests {
             &mut tx,
             Uuid::nil(),
             Task {
-                tags: vec![Tag {
-                    id: tag_id,
-                    ..Default::default()
-                }],
+                tags: vec![tag],
                 ..Default::default()
             },
         )
@@ -2641,6 +2682,11 @@ mod insert_tests {
 
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
+
+        assert_eq!(
+            task.created_at, task.updated_at,
+            "created_at and updated_at should be the same when created"
+        );
     }
 
     #[test]
@@ -2650,44 +2696,46 @@ mod insert_tests {
 
         let base_time = Utc::now();
 
-        let tag_1 = Tag {
-            label: "Test Tag 1".to_string(),
-            category: Some("Testing".to_string()),
-            ..Default::default()
-        };
-        let tag_1_id = insert_test_tag(&mut tx, tag_1.clone(), None, base_time, base_time).await;
-        let tag_2 = Tag {
-            label: "Test Tag 2".to_string(),
-            category: Some("Testing".to_string()),
-            ..Default::default()
-        };
-        let tag_2_id = insert_test_tag(&mut tx, tag_2.clone(), None, base_time, base_time).await;
-        let tag_3 = Tag {
-            label: "Test Tag 3".to_string(),
-            category: Some("Testing".to_string()),
-            ..Default::default()
-        };
-        let tag_3_id = insert_test_tag(&mut tx, tag_3.clone(), None, base_time, base_time).await;
+        let tag_1 = create_test_tag(
+            &mut tx,
+            Tag {
+                label: "Test Tag 1".to_string(),
+                category: Some("Testing".to_string()),
+                ..Default::default()
+            },
+            base_time,
+            base_time,
+        )
+        .await;
+        let tag_2 = create_test_tag(
+            &mut tx,
+            Tag {
+                label: "Test Tag 2".to_string(),
+                category: Some("Testing".to_string()),
+                ..Default::default()
+            },
+            base_time,
+            base_time,
+        )
+        .await;
+        let tag_3 = create_test_tag(
+            &mut tx,
+            Tag {
+                label: "Test Tag 3".to_string(),
+                category: Some("Testing".to_string()),
+                ..Default::default()
+            },
+            base_time,
+            base_time,
+        )
+        .await;
 
         let res = insert_task_inner(
             &mut tx,
             Uuid::nil(),
             Task {
                 title: "Test Task".to_string(),
-                tags: vec![
-                    Tag {
-                        id: tag_1_id,
-                        ..Default::default()
-                    },
-                    Tag {
-                        id: tag_2_id,
-                        ..Default::default()
-                    },
-                    Tag {
-                        id: tag_3_id,
-                        ..Default::default()
-                    },
-                ],
+                tags: vec![tag_1, tag_2, tag_3],
                 ..Default::default()
             },
         )
@@ -2707,6 +2755,11 @@ mod insert_tests {
 
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
+
+        assert_eq!(
+            task.created_at, task.updated_at,
+            "created_at and updated_at should be the same when created"
+        );
     }
 
     #[test]
@@ -2767,6 +2820,11 @@ mod insert_tests {
 
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
+
+        assert_eq!(
+            task.created_at, task.updated_at,
+            "created_at and updated_at should be the same when created"
+        );
     }
 
     #[test]
@@ -2814,6 +2872,11 @@ mod insert_tests {
 
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
+
+        assert_eq!(
+            task.created_at, task.updated_at,
+            "created_at and updated_at should be the same when created"
+        );
     }
 }
 
@@ -2831,10 +2894,8 @@ mod update_tests {
         },
     };
 
-    use super::{
-        test_helpers::{PG_SUBSEC_PREC, get_pool, insert_test_tag, insert_test_task},
-        update_task_inner,
-    };
+    use super::test_helpers::{PG_SUBSEC_PREC, create_test_tag, create_test_task, get_pool};
+    use super::update_task_inner;
 
     #[test]
     async fn no_change() {
@@ -2843,15 +2904,11 @@ mod update_tests {
 
         let base_time = Utc::now();
 
-        let task_id =
-            insert_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
+        let before_task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
 
-        let before_task = select_task_inner(&mut tx, task_id, Uuid::nil())
-            .await
-            .unwrap()
-            .unwrap();
-
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), before_task.clone()).await;
+        let res =
+            update_task_inner(&mut tx, before_task.id, Uuid::nil(), before_task.clone()).await;
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
@@ -2878,18 +2935,13 @@ mod update_tests {
 
         let base_time = Utc::now();
 
-        let task_id =
-            insert_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
-
-        let before_task = select_task_inner(&mut tx, task_id, Uuid::nil())
-            .await
-            .unwrap()
-            .unwrap();
+        let before_task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
 
         let mut updated_task = before_task.clone();
         updated_task.title = "New title".to_string();
 
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
@@ -2917,18 +2969,13 @@ mod update_tests {
 
         let base_time = Utc::now();
 
-        let task_id =
-            insert_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
-
-        let before_task = select_task_inner(&mut tx, task_id, Uuid::nil())
-            .await
-            .unwrap()
-            .unwrap();
+        let before_task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
 
         let mut updated_task = before_task.clone();
         updated_task.notes = Some("Updated notes".to_string());
 
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
@@ -2956,19 +3003,14 @@ mod update_tests {
 
         let base_time = Utc::now();
 
-        let task_id =
-            insert_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
-
-        let before_task = select_task_inner(&mut tx, task_id, Uuid::nil())
-            .await
-            .unwrap()
-            .unwrap();
+        let before_task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
 
         let updated_start = Utc::now().date_naive();
         let mut updated_task = before_task.clone();
         updated_task.start = Some(Start::On(updated_start));
 
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
@@ -2997,19 +3039,14 @@ mod update_tests {
 
         let base_time = Utc::now();
 
-        let task_id =
-            insert_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
-
-        let before_task = select_task_inner(&mut tx, task_id, Uuid::nil())
-            .await
-            .unwrap()
-            .unwrap();
+        let before_task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
 
         let updated_start = Utc::now();
         let mut updated_task = before_task.clone();
         updated_task.start = Some(Start::At(updated_start));
 
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
@@ -3044,7 +3081,7 @@ mod update_tests {
         let datetime = Utc::now();
         let date = datetime.date_naive();
 
-        let task_id = insert_test_task(
+        let before_task = create_test_task(
             &mut tx,
             Task {
                 start: Some(Start::On(date)),
@@ -3057,15 +3094,10 @@ mod update_tests {
         )
         .await;
 
-        let before_task = select_task_inner(&mut tx, task_id, Uuid::nil())
-            .await
-            .unwrap()
-            .unwrap();
-
         let mut updated_task = before_task.clone();
         updated_task.start = Some(Start::At(datetime));
 
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
@@ -3097,19 +3129,14 @@ mod update_tests {
 
         let base_time = Utc::now();
 
-        let task_id =
-            insert_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
-
-        let before_task = select_task_inner(&mut tx, task_id, Uuid::nil())
-            .await
-            .unwrap()
-            .unwrap();
+        let before_task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
 
         let updated_deadline = Utc::now().date_naive();
         let mut updated_task = before_task.clone();
         updated_task.deadline = Some(updated_deadline);
 
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
@@ -3132,11 +3159,20 @@ mod update_tests {
     }
 
     #[test]
-    async fn nonexistent_task() {
+    async fn deleted_task() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let res = update_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), Task::default()).await;
+        let base_time = Utc::now();
+
+        let task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
+
+        delete_task_inner(&mut tx, task.id, Uuid::nil())
+            .await
+            .unwrap();
+
+        let res = update_task_inner(&mut tx, task.id, Uuid::nil(), Task::default()).await;
         assert!(matches!(
             res,
             Err(Error::Application(ApplicationError::TaskNotFound))
@@ -3144,20 +3180,11 @@ mod update_tests {
     }
 
     #[test]
-    async fn deleted_task() {
+    async fn nonexistent_task() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
-
-        let task_id =
-            insert_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
-
-        delete_task_inner(&mut tx, task_id, Uuid::nil())
-            .await
-            .unwrap();
-
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), Task::default()).await;
+        let res = update_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), Task::default()).await;
         assert!(matches!(
             res,
             Err(Error::Application(ApplicationError::TaskNotFound))
@@ -3171,34 +3198,25 @@ mod update_tests {
 
         let base_time = Utc::now();
 
-        let tag_id = insert_test_tag(
+        let tag = create_test_tag(
             &mut tx,
             Tag {
                 label: "Test Tag".to_string(),
                 category: Some("Testing".to_string()),
                 ..Default::default()
             },
-            None,
             base_time,
             base_time,
         )
         .await;
 
-        let task_id =
-            insert_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
-
-        let before_task = select_task_inner(&mut tx, task_id, Uuid::nil())
-            .await
-            .unwrap()
-            .unwrap();
+        let before_task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
 
         let mut updated_task = before_task.clone();
-        updated_task.tags = vec![Tag {
-            id: tag_id,
-            ..Default::default()
-        }];
+        updated_task.tags = vec![tag];
 
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
@@ -3228,50 +3246,47 @@ mod update_tests {
 
         let base_time = Utc::now();
 
-        let tag_1 = Tag {
-            label: "Test Tag 1".to_string(),
-            category: Some("Testing".to_string()),
-            ..Default::default()
-        };
-        let tag_1_id = insert_test_tag(&mut tx, tag_1.clone(), None, base_time, base_time).await;
-        let tag_2 = Tag {
-            label: "Test Tag 2".to_string(),
-            category: Some("Testing".to_string()),
-            ..Default::default()
-        };
-        let tag_2_id = insert_test_tag(&mut tx, tag_2.clone(), None, base_time, base_time).await;
-        let tag_3 = Tag {
-            label: "Test Tag 3".to_string(),
-            category: Some("Testing".to_string()),
-            ..Default::default()
-        };
-        let tag_3_id = insert_test_tag(&mut tx, tag_3.clone(), None, base_time, base_time).await;
+        let tag_1 = create_test_tag(
+            &mut tx,
+            Tag {
+                label: "Test Tag 1".to_string(),
+                category: Some("Testing".to_string()),
+                ..Default::default()
+            },
+            base_time,
+            base_time,
+        )
+        .await;
+        let tag_2 = create_test_tag(
+            &mut tx,
+            Tag {
+                label: "Test Tag 2".to_string(),
+                category: Some("Testing".to_string()),
+                ..Default::default()
+            },
+            base_time,
+            base_time,
+        )
+        .await;
+        let tag_3 = create_test_tag(
+            &mut tx,
+            Tag {
+                label: "Test Tag 3".to_string(),
+                category: Some("Testing".to_string()),
+                ..Default::default()
+            },
+            base_time,
+            base_time,
+        )
+        .await;
 
-        let task_id =
-            insert_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
-
-        let before_task = select_task_inner(&mut tx, task_id, Uuid::nil())
-            .await
-            .unwrap()
-            .unwrap();
+        let before_task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
 
         let mut updated_task = before_task.clone();
-        updated_task.tags = vec![
-            Tag {
-                id: tag_1_id,
-                ..Default::default()
-            },
-            Tag {
-                id: tag_2_id,
-                ..Default::default()
-            },
-            Tag {
-                id: tag_3_id,
-                ..Default::default()
-            },
-        ];
+        updated_task.tags = vec![tag_1, tag_2, tag_3];
 
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
@@ -3303,42 +3318,44 @@ mod update_tests {
 
         let base_time = Utc::now();
 
-        let tag_1 = Tag {
-            label: "Test Tag 1".to_string(),
-            category: Some("Testing".to_string()),
-            ..Default::default()
-        };
-        let tag_1_id = insert_test_tag(&mut tx, tag_1.clone(), None, base_time, base_time).await;
-        let tag_2 = Tag {
-            label: "Test Tag 2".to_string(),
-            category: Some("Testing".to_string()),
-            ..Default::default()
-        };
-        let tag_2_id = insert_test_tag(&mut tx, tag_2.clone(), None, base_time, base_time).await;
-        let tag_3 = Tag {
-            label: "Test Tag 3".to_string(),
-            category: Some("Testing".to_string()),
-            ..Default::default()
-        };
-        let tag_3_id = insert_test_tag(&mut tx, tag_3.clone(), None, base_time, base_time).await;
+        let tag_1 = create_test_tag(
+            &mut tx,
+            Tag {
+                label: "Test Tag 1".to_string(),
+                category: Some("Testing".to_string()),
+                ..Default::default()
+            },
+            base_time,
+            base_time,
+        )
+        .await;
+        let tag_2 = create_test_tag(
+            &mut tx,
+            Tag {
+                label: "Test Tag 2".to_string(),
+                category: Some("Testing".to_string()),
+                ..Default::default()
+            },
+            base_time,
+            base_time,
+        )
+        .await;
+        let tag_3 = create_test_tag(
+            &mut tx,
+            Tag {
+                label: "Test Tag 3".to_string(),
+                category: Some("Testing".to_string()),
+                ..Default::default()
+            },
+            base_time,
+            base_time,
+        )
+        .await;
 
-        let task_id = insert_test_task(
+        let before_task = create_test_task(
             &mut tx,
             Task {
-                tags: vec![
-                    Tag {
-                        id: tag_1_id,
-                        ..Default::default()
-                    },
-                    Tag {
-                        id: tag_2_id,
-                        ..Default::default()
-                    },
-                    Tag {
-                        id: tag_3_id,
-                        ..Default::default()
-                    },
-                ],
+                tags: vec![tag_1, tag_2, tag_3],
                 ..Default::default()
             },
             None,
@@ -3348,15 +3365,10 @@ mod update_tests {
         )
         .await;
 
-        let before_task = select_task_inner(&mut tx, task_id, Uuid::nil())
-            .await
-            .unwrap()
-            .unwrap();
-
         let mut updated_task = before_task.clone();
         updated_task.tags = vec![];
 
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
@@ -3384,13 +3396,8 @@ mod update_tests {
 
         let base_time = Utc::now();
 
-        let task_id =
-            insert_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
-
-        let before_task = select_task_inner(&mut tx, task_id, Uuid::nil())
-            .await
-            .unwrap()
-            .unwrap();
+        let before_task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
 
         let mut updated_task = before_task.clone();
         updated_task.tags = vec![Tag {
@@ -3398,7 +3405,7 @@ mod update_tests {
             ..Default::default()
         }];
 
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
         assert!(matches!(
             res,
             Err(Error::Application(ApplicationError::TagNotFound))
@@ -3412,7 +3419,7 @@ mod update_tests {
 
         let base_time = Utc::now();
 
-        let task_id = insert_test_task(
+        let before_task = create_test_task(
             &mut tx,
             Task {
                 title: "Homework 2".to_string(),
@@ -3428,11 +3435,6 @@ mod update_tests {
         )
         .await;
 
-        let before_task = select_task_inner(&mut tx, task_id, Uuid::nil())
-            .await
-            .unwrap()
-            .unwrap();
-
         let mut updated_task = before_task.clone();
         if let Some(Start::On(date)) = updated_task.start {
             updated_task.start = Some(Start::On(date + Duration::weeks(1)));
@@ -3441,7 +3443,7 @@ mod update_tests {
             updated_task.deadline = Some(date + Duration::weeks(1));
         }
 
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
@@ -3480,63 +3482,56 @@ mod update_tests {
 
         let base_time = Utc::now();
 
-        let backlog_tag_id = insert_test_tag(
+        let backlog_tag = create_test_tag(
             &mut tx,
             Tag {
                 label: "Backlog".to_string(),
                 category: Some("Workflow".to_string()),
                 ..Default::default()
             },
-            None,
             base_time,
             base_time,
         )
         .await;
-        let todo_tag_id = insert_test_tag(
+        let todo_tag = create_test_tag(
             &mut tx,
             Tag {
                 label: "Todo".to_string(),
                 category: Some("Workflow".to_string()),
                 ..Default::default()
             },
-            None,
             base_time,
             base_time,
         )
         .await;
-        let in_progress_tag_id = insert_test_tag(
+        let in_progress_tag = create_test_tag(
             &mut tx,
             Tag {
                 label: "In Progress".to_string(),
                 category: Some("Workflow".to_string()),
                 ..Default::default()
             },
-            None,
             base_time,
             base_time,
         )
         .await;
-        let completed_tag_id = insert_test_tag(
+        let completed_tag = create_test_tag(
             &mut tx,
             Tag {
                 label: "Completed".to_string(),
                 category: Some("Workflow".to_string()),
                 ..Default::default()
             },
-            None,
             base_time,
             base_time,
         )
         .await;
 
-        let task_id = insert_test_task(
+        let task = create_test_task(
             &mut tx,
             Task {
                 title: "Create reusable button component".to_string(),
-                tags: vec![Tag {
-                    id: backlog_tag_id,
-                    ..Default::default()
-                }],
+                tags: vec![backlog_tag],
                 ..Default::default()
             },
             None,
@@ -3546,7 +3541,7 @@ mod update_tests {
         )
         .await;
 
-        let backlog_task = select_task_inner(&mut tx, task_id, Uuid::nil())
+        let backlog_task = select_task_inner(&mut tx, task.id, Uuid::nil())
             .await
             .unwrap()
             .unwrap();
@@ -3556,11 +3551,8 @@ mod update_tests {
         assert_eq!(tag.category.as_deref(), Some("Workflow"));
 
         let mut updated_task = backlog_task.clone();
-        updated_task.tags = vec![Tag {
-            id: todo_tag_id,
-            ..Default::default()
-        }];
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        updated_task.tags = vec![todo_tag];
+        let res = update_task_inner(&mut tx, task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
         let todo_task = res.unwrap();
         assert_eq!(todo_task.tags.len(), 1);
@@ -3569,11 +3561,8 @@ mod update_tests {
         assert_eq!(tag.category.as_deref(), Some("Workflow"));
 
         let mut updated_task = backlog_task.clone();
-        updated_task.tags = vec![Tag {
-            id: in_progress_tag_id,
-            ..Default::default()
-        }];
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        updated_task.tags = vec![in_progress_tag];
+        let res = update_task_inner(&mut tx, task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
         let in_progress_task = res.unwrap();
         assert_eq!(in_progress_task.tags.len(), 1);
@@ -3582,11 +3571,8 @@ mod update_tests {
         assert_eq!(tag.category.as_deref(), Some("Workflow"));
 
         let mut updated_task = backlog_task.clone();
-        updated_task.tags = vec![Tag {
-            id: completed_tag_id,
-            ..Default::default()
-        }];
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        updated_task.tags = vec![completed_tag];
+        let res = update_task_inner(&mut tx, task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
         let completed_task = res.unwrap();
         assert_eq!(completed_task.tags.len(), 1);
@@ -3602,7 +3588,7 @@ mod update_tests {
 
         let base_time = Utc::now();
 
-        let task_id = insert_test_task(
+        let before_task = create_test_task(
             &mut tx,
             Task {
                 title: "Create database schema".to_string(),
@@ -3616,17 +3602,12 @@ mod update_tests {
         )
         .await;
 
-        let before_task = select_task_inner(&mut tx, task_id, Uuid::nil())
-            .await
-            .unwrap()
-            .unwrap();
-
         let mut updated_task = before_task.clone();
         updated_task.title = "Create task database schema".to_string();
         updated_task.notes =
             Some("Schema should contain:\n* id\n* title\n* notes\n* created_by".to_string());
 
-        let res = update_task_inner(&mut tx, task_id, Uuid::nil(), updated_task).await;
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
@@ -3642,26 +3623,255 @@ mod update_tests {
 }
 
 #[cfg(test)]
-mod delete_restore_tests {
+mod delete_tests {
+    use chrono::Utc;
     use tokio::test;
+    use uuid::Uuid;
+
+    use crate::com::model::Task;
+
+    use super::delete_task_inner;
+    use super::test_helpers::{create_test_task, get_pool, get_task};
 
     #[test]
-    async fn delete_returns_unit() {}
+    async fn base_delete() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
+        assert!(task.deleted_at.is_none());
+
+        let res = delete_task_inner(&mut tx, task.id, Uuid::nil()).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "delete should return unit '()'");
+
+        let after_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        assert_ne!(after_task.updated_at, task.updated_at);
+        assert!(after_task.deleted_at.is_some());
+        if let Some(date) = after_task.deleted_at {
+            assert_eq!(date, after_task.updated_at);
+        }
+    }
 
     #[test]
-    async fn delete_deleted() {}
+    async fn deleted_task() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let task = create_test_task(
+            &mut tx,
+            Task::default(),
+            None,
+            Some(base_time),
+            base_time,
+            base_time,
+        )
+        .await;
+        assert!(
+            task.deleted_at.is_some(),
+            "task should have been initialized as deleted"
+        );
+
+        let res = delete_task_inner(&mut tx, task.id, Uuid::nil()).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "deleted should return unit '()'");
+
+        let after_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        assert_eq!(
+            after_task.updated_at, task.updated_at,
+            "updated_at should not be updated if the task was already deleted"
+        );
+        assert_eq!(
+            after_task.deleted_at, task.deleted_at,
+            "deleted_at should not be updated if the task was already deleted"
+        );
+    }
 
     #[test]
-    async fn delete_nonexistent() {}
+    async fn deleted_twice() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
+        assert!(task.deleted_at.is_none());
+
+        let res = delete_task_inner(&mut tx, task.id, Uuid::nil()).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "delete should return unit '()'");
+
+        let first_delete_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        assert_ne!(first_delete_task.updated_at, task.updated_at);
+        assert!(first_delete_task.deleted_at.is_some());
+        if let Some(date) = first_delete_task.deleted_at {
+            assert_eq!(date, first_delete_task.updated_at);
+        }
+
+        let res = delete_task_inner(&mut tx, task.id, Uuid::nil()).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "deleted should return unit '()'");
+
+        let second_delete_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        assert_eq!(
+            second_delete_task.updated_at, first_delete_task.updated_at,
+            "updated_at should not be updated if the task was already deleted"
+        );
+        assert_eq!(
+            second_delete_task.deleted_at, first_delete_task.deleted_at,
+            "deleted_at should not be updated if the task was already deleted"
+        );
+    }
 
     #[test]
-    async fn restore_returns_unit() {}
+    async fn nonexistent_task() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let res = delete_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil()).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "delete should return unit '()'");
+    }
+}
+
+#[cfg(test)]
+mod restore_tests {
+    use chrono::{SubsecRound, Utc};
+    use tokio::test;
+    use uuid::Uuid;
+
+    use crate::{
+        com::model::Task,
+        db::task::test_helpers::{PG_SUBSEC_PREC, create_test_task, get_pool, get_task},
+    };
+
+    use super::restore_task_inner;
 
     #[test]
-    async fn restore_restored() {}
+    async fn base_restore() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let task = create_test_task(
+            &mut tx,
+            Task::default(),
+            None,
+            Some(base_time),
+            base_time,
+            base_time,
+        )
+        .await;
+        assert!(task.deleted_at.is_some());
+        if let Some(date) = task.deleted_at {
+            assert_eq!(date, base_time.trunc_subsecs(PG_SUBSEC_PREC));
+        }
+
+        let res = restore_task_inner(&mut tx, task.id, Uuid::nil()).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "restore should return unit '()'");
+
+        let after_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        assert_ne!(after_task.updated_at, task.updated_at);
+        assert!(after_task.deleted_at.is_none());
+    }
 
     #[test]
-    async fn restore_nonexistent() {}
+    async fn restored_task() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
+        assert!(task.deleted_at.is_none());
+
+        let res = restore_task_inner(&mut tx, task.id, Uuid::nil()).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "restore should return unit '()'");
+
+        let after_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        assert_eq!(
+            after_task.updated_at, task.updated_at,
+            "updated_at should not be updated if the task was already restored"
+        );
+        assert_eq!(
+            after_task.deleted_at, task.deleted_at,
+            "deleted_at should not be updated if the task was already restored"
+        );
+    }
+
+    #[test]
+    async fn restore_twice() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let task = create_test_task(
+            &mut tx,
+            Task::default(),
+            None,
+            Some(base_time),
+            base_time,
+            base_time,
+        )
+        .await;
+        assert!(task.deleted_at.is_some());
+        if let Some(date) = task.deleted_at {
+            assert_eq!(date, base_time.trunc_subsecs(PG_SUBSEC_PREC));
+        }
+
+        let res = restore_task_inner(&mut tx, task.id, Uuid::nil()).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "restore should return unit '()'");
+
+        let first_delete_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        assert_ne!(first_delete_task.updated_at, task.updated_at);
+        assert!(first_delete_task.deleted_at.is_none());
+
+        let res = restore_task_inner(&mut tx, task.id, Uuid::nil()).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "restore should return unit '()'");
+
+        let second_delete_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        assert_eq!(
+            second_delete_task.updated_at, first_delete_task.updated_at,
+            "updated_at should not be updated if the task was already restored"
+        );
+        assert_eq!(
+            second_delete_task.deleted_at, first_delete_task.deleted_at,
+            "deleted_at should not be updated if the task was already restore"
+        );
+    }
+
+    #[test]
+    async fn nonexistent_task() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let res = restore_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil()).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "restore should return unit '()'");
+    }
 }
 
 #[cfg(test)]
@@ -3669,26 +3879,52 @@ mod complete_tests {
     use tokio::test;
 
     #[test]
-    async fn complete_task() {}
+    async fn complete_task() {
+        todo!()
+    }
 
     #[test]
-    async fn completed_completed() {}
+    async fn complete_completed() {
+        todo!()
+    }
 
     #[test]
-    async fn completed_deleted() {}
+    async fn complete_twice() {
+        todo!()
+    }
 
     #[test]
-    async fn completed_nonexistent() {}
+    async fn completed_deleted() {
+        todo!()
+    }
 
     #[test]
-    async fn uncomplete_task() {}
+    async fn completed_nonexistent() {
+        todo!()
+    }
 
     #[test]
-    async fn uncomplete_uncompleted() {}
+    async fn uncomplete_task() {
+        todo!()
+    }
 
     #[test]
-    async fn uncomplete_deleted() {}
+    async fn uncomplete_uncompleted() {
+        todo!()
+    }
 
     #[test]
-    async fn uncomplete_nonexistent() {}
+    async fn uncomplete_twice() {
+        todo!()
+    }
+
+    #[test]
+    async fn uncomplete_deleted() {
+        todo!()
+    }
+
+    #[test]
+    async fn uncomplete_nonexistent() {
+        todo!()
+    }
 }
