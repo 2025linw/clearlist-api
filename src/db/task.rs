@@ -276,6 +276,9 @@ async fn insert_task_inner(conn: &mut PgConnection, user_id: Uuid, task: Task) -
 
 /// Update task in database
 ///
+/// This function is not yet idempotent, but will be in the future:
+/// multiple calls will only update the first time
+///
 /// # Arguments
 ///
 /// * `pool`: Database connection pool
@@ -348,6 +351,9 @@ async fn update_task_inner(
 
 /// Delete task from database
 ///
+/// This function is idempotent:
+/// multiple calls will only delete the first time
+///
 /// # Arguments
 ///
 /// * `pool`: Database connection pool
@@ -373,7 +379,7 @@ async fn delete_task_inner(conn: &mut PgConnection, task_id: Uuid, user_id: Uuid
         "UPDATE app.tasks SET
         (updated_at, deleted_at) =
         (CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        WHERE id = $1 AND created_by = $2",
+        WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL",
     )
     .bind(task_id)
     .bind(user_id)
@@ -384,6 +390,9 @@ async fn delete_task_inner(conn: &mut PgConnection, task_id: Uuid, user_id: Uuid
 }
 
 /// Restore deleted task in database
+///
+/// This function is idempotent:
+/// multiple calls will only restore the first time
 ///
 /// # Arguments
 ///
@@ -410,7 +419,7 @@ async fn restore_task_inner(conn: &mut PgConnection, task_id: Uuid, user_id: Uui
         "UPDATE app.tasks SET
         (updated_at, deleted_at) =
         (CURRENT_TIMESTAMP, NULL)
-        WHERE id = $1 AND created_by = $2",
+        WHERE id = $1 AND created_by = $2 AND deleted_at IS NOT NULL",
     )
     .bind(task_id)
     .bind(user_id)
@@ -422,7 +431,8 @@ async fn restore_task_inner(conn: &mut PgConnection, task_id: Uuid, user_id: Uui
 
 /// Mark/unmark task as completed in database
 ///
-/// This function is idempotent
+/// This function is idempotent:
+/// multiple calls will only complete/uncomplete the first time
 ///
 /// # Arguments
 ///
@@ -457,48 +467,33 @@ async fn complete_task_inner(
     user_id: Uuid,
     completed: bool,
 ) -> Result<()> {
+    if select_task_inner(conn, task_id, user_id).await?.is_none() {
+        return Err(Error::Application(ApplicationError::TaskNotFound));
+    }
+
     let query = if completed {
-        // NOTE: this is a version of the query that prevents updates when setting completed to existing value
-        // "UPDATE app.tasks SET
-        // (updated_at, completed_at) =
-        // (CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        // WHERE id = $1
-        // AND created_by = $2
-        // AND deleted_at IS NULL
-        // AND completed_at IS NULL"
         "UPDATE app.tasks SET
         (updated_at, completed_at) =
         (CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         WHERE id = $1
         AND created_by = $2
-        AND deleted_at IS NULL"
+        AND deleted_at IS NULL
+        AND completed_at IS NULL"
     } else {
-        // NOTE: this is a version of the query that prevents updates when setting completed to existing value
-        // "UPDATE app.tasks SET
-        // (updated_at, completed_at) =
-        // (CURRENT_TIMESTAMP, NULL)
-        // WHERE id = $1
-        // AND created_by = $2
-        // AND deleted_at IS NULL
-        // AND completed_at IS NOT NULL"
         "UPDATE app.tasks SET
         (updated_at, completed_at) =
         (CURRENT_TIMESTAMP, NULL)
         WHERE id = $1
         AND created_by = $2
-        AND deleted_at IS NULL"
+        AND deleted_at IS NULL
+        AND completed_at IS NOT NULL"
     };
 
-    let rows = sqlx::query(query)
+    sqlx::query(query)
         .bind(task_id)
         .bind(user_id)
         .execute(conn.as_mut())
-        .await?
-        .rows_affected();
-
-    if rows == 0 {
-        return Err(Error::Application(ApplicationError::TaskNotFound));
-    }
+        .await?;
 
     Ok(())
 }
