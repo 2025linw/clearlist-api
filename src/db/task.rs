@@ -839,7 +839,7 @@ mod test_helpers {
             .unwrap();
         }
 
-        let ret_task = get_task(conn, task_id, Uuid::nil()).await;
+        let ret_task = get_task(conn, task_id).await;
         assert_eq!(ret_task.title, task.title, "title does not match input");
         assert_eq!(ret_task.notes, task.notes, "notes does not match input");
         assert_eq!(ret_task.start, task.start, "start does not match input");
@@ -890,14 +890,14 @@ mod test_helpers {
         ret_task
     }
 
-    pub async fn get_task(conn: &mut PgConnection, task_id: Uuid, user_id: Uuid) -> Task {
+    pub async fn get_task(conn: &mut PgConnection, task_id: Uuid) -> Task {
         let mut task = query_as_wrapper::<TaskIntermediate>(
             "SELECT *
                 FROM app.tasks
                 WHERE id = $1 AND created_by = $2",
         )
         .bind(task_id)
-        .bind(user_id)
+        .bind(Uuid::nil())
         .fetch_one(conn.as_mut())
         .await
         .unwrap();
@@ -935,7 +935,7 @@ mod test_helpers {
         .await
         .unwrap();
 
-        let ret_tag = get_tag(conn, tag_id, Uuid::nil()).await;
+        let ret_tag = get_tag(conn, tag_id).await;
         assert_eq!(ret_tag.label, tag.label, "label does not match input");
         assert_eq!(
             ret_tag.category, tag.category,
@@ -960,14 +960,14 @@ mod test_helpers {
         ret_tag
     }
 
-    pub async fn get_tag(conn: &mut PgConnection, tag_id: Uuid, user_id: Uuid) -> Tag {
+    pub async fn get_tag(conn: &mut PgConnection, tag_id: Uuid) -> Tag {
         query_as_wrapper::<Tag>(
             "SELECT *
         FROM app.tags
         WHERE id = $1 AND created_by = $2",
         )
         .bind(tag_id)
-        .bind(user_id)
+        .bind(Uuid::nil())
         .fetch_one(conn.as_mut())
         .await
         .unwrap()
@@ -3794,7 +3794,7 @@ mod delete_tests {
 
         assert_eq!(res.unwrap(), (), "delete should return unit '()'");
 
-        let after_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        let after_task = get_task(&mut tx, task.id).await;
         assert_ne!(after_task.updated_at, task.updated_at);
         assert!(after_task.deleted_at.is_some());
         if let Some(date) = after_task.deleted_at {
@@ -3824,7 +3824,7 @@ mod delete_tests {
 
         assert_eq!(res.unwrap(), (), "deleted should return unit '()'");
 
-        let after_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        let after_task = get_task(&mut tx, task.id).await;
         assert_eq!(
             after_task.updated_at, task.updated_at,
             "updated_at should not be updated if the task was already deleted"
@@ -3850,7 +3850,7 @@ mod delete_tests {
 
         assert_eq!(res.unwrap(), (), "delete should return unit '()'");
 
-        let first_delete_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        let first_delete_task = get_task(&mut tx, task.id).await;
         assert_ne!(first_delete_task.updated_at, task.updated_at);
         assert!(first_delete_task.deleted_at.is_some());
         if let Some(date) = first_delete_task.deleted_at {
@@ -3862,7 +3862,7 @@ mod delete_tests {
 
         assert_eq!(res.unwrap(), (), "deleted should return unit '()'");
 
-        let second_delete_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        let second_delete_task = get_task(&mut tx, task.id).await;
         assert_eq!(
             second_delete_task.updated_at, first_delete_task.updated_at,
             "updated_at should not be updated if the task was already deleted"
@@ -3923,7 +3923,7 @@ mod restore_tests {
 
         assert_eq!(res.unwrap(), (), "restore should return unit '()'");
 
-        let after_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        let after_task = get_task(&mut tx, task.id).await;
         assert_ne!(after_task.updated_at, task.updated_at);
         assert!(after_task.deleted_at.is_none());
     }
@@ -3943,7 +3943,7 @@ mod restore_tests {
 
         assert_eq!(res.unwrap(), (), "restore should return unit '()'");
 
-        let after_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        let after_task = get_task(&mut tx, task.id).await;
         assert_eq!(
             after_task.updated_at, task.updated_at,
             "updated_at should not be updated if the task was already restored"
@@ -3976,7 +3976,7 @@ mod restore_tests {
 
         assert_eq!(res.unwrap(), (), "restore should return unit '()'");
 
-        let first_restore_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        let first_restore_task = get_task(&mut tx, task.id).await;
         assert_ne!(first_restore_task.updated_at, task.updated_at);
         assert!(first_restore_task.deleted_at.is_none());
 
@@ -3985,7 +3985,7 @@ mod restore_tests {
 
         assert_eq!(res.unwrap(), (), "restore should return unit '()'");
 
-        let second_restore_task = get_task(&mut tx, task.id, Uuid::nil()).await;
+        let second_restore_task = get_task(&mut tx, task.id).await;
         assert_eq!(
             second_restore_task.updated_at, first_restore_task.updated_at,
             "updated_at should not be updated if the task was already restored"
@@ -4011,55 +4011,311 @@ mod restore_tests {
 
 #[cfg(test)]
 mod complete_tests {
+    use chrono::Utc;
     use tokio::test;
+    use uuid::Uuid;
+
+    use crate::com::model::Task;
+    use crate::db::task::test_helpers::get_task;
+    use crate::db::{ApplicationError, Error};
+
+    use super::complete_task_inner;
+    use super::test_helpers::{create_test_task, get_pool};
 
     #[test]
     async fn complete_task() {
-        todo!()
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
+
+        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), true).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+
+        let after_task = get_task(&mut tx, task.id).await;
+        assert_ne!(after_task.updated_at, task.updated_at);
+        assert!(after_task.completed_at.is_some());
+        if let Some(date) = after_task.completed_at {
+            assert_eq!(date, after_task.updated_at);
+        }
     }
 
     #[test]
     async fn complete_completed() {
-        todo!()
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let task = create_test_task(
+            &mut tx,
+            Task::default(),
+            Some(base_time),
+            None,
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), true).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+
+        let after_task = get_task(&mut tx, task.id).await;
+        assert_eq!(
+            after_task.updated_at, task.updated_at,
+            "updated_at should not be updated if task was already completed"
+        );
+        assert_eq!(
+            after_task.completed_at, task.completed_at,
+            "completed_at should not be updated if task was already completed"
+        );
     }
 
     #[test]
     async fn complete_twice() {
-        todo!()
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
+
+        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), true).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+
+        let first_complete_task = get_task(&mut tx, task.id).await;
+        assert_ne!(first_complete_task.updated_at, task.updated_at);
+        assert!(first_complete_task.completed_at.is_some());
+        if let Some(date) = first_complete_task.completed_at {
+            assert_eq!(date, first_complete_task.updated_at);
+        }
+
+        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), true).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+
+        let second_complete_task = get_task(&mut tx, task.id).await;
+        assert_eq!(
+            second_complete_task.updated_at, first_complete_task.updated_at,
+            "updated_at should not be updated if task was already completed"
+        );
+        assert_eq!(
+            second_complete_task.completed_at, first_complete_task.completed_at,
+            "completed_at should not be updated if task was already completed"
+        );
     }
 
     #[test]
-    async fn completed_deleted() {
-        todo!()
+    async fn complete_deleted() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        // uncomplete task
+        let task = create_test_task(
+            &mut tx,
+            Task::default(),
+            None,
+            Some(base_time),
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), true).await;
+        assert!(matches!(
+            res,
+            Err(Error::Application(ApplicationError::TaskNotFound))
+        ));
+
+        // completed task
+        let task = create_test_task(
+            &mut tx,
+            Task::default(),
+            Some(base_time),
+            Some(base_time),
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), true).await;
+        assert!(matches!(
+            res,
+            Err(Error::Application(ApplicationError::TaskNotFound))
+        ));
     }
 
     #[test]
-    async fn completed_nonexistent() {
-        todo!()
+    async fn complete_nonexistent() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let res = complete_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), true).await;
+        assert!(matches!(
+            res,
+            Err(Error::Application(ApplicationError::TaskNotFound))
+        ));
     }
 
     #[test]
     async fn uncomplete_task() {
-        todo!()
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let task = create_test_task(
+            &mut tx,
+            Task::default(),
+            Some(base_time),
+            None,
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), false).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+
+        let after_task = get_task(&mut tx, task.id).await;
+        assert_ne!(after_task.updated_at, task.updated_at);
+        assert!(after_task.completed_at.is_none());
     }
 
     #[test]
     async fn uncomplete_uncompleted() {
-        todo!()
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let task =
+            create_test_task(&mut tx, Task::default(), None, None, base_time, base_time).await;
+
+        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), false).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+
+        let after_task = get_task(&mut tx, task.id).await;
+        assert_eq!(
+            after_task.updated_at, task.updated_at,
+            "updated_at should not be updated if task was already not completed"
+        );
+        assert_eq!(
+            after_task.completed_at, task.completed_at,
+            "completed_at should not be updated if task was already not completed"
+        );
     }
 
     #[test]
     async fn uncomplete_twice() {
-        todo!()
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let task = create_test_task(
+            &mut tx,
+            Task::default(),
+            Some(base_time),
+            None,
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), false).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+
+        let first_uncomplete_task = get_task(&mut tx, task.id).await;
+        assert_ne!(first_uncomplete_task.updated_at, task.updated_at);
+        assert!(first_uncomplete_task.completed_at.is_none());
+
+        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), false).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+
+        let second_uncomplete_task = get_task(&mut tx, task.id).await;
+        assert_eq!(
+            second_uncomplete_task.updated_at, first_uncomplete_task.updated_at,
+            "updated_at should not be updated if task was already not completed"
+        );
+        assert_eq!(
+            second_uncomplete_task.completed_at, first_uncomplete_task.completed_at,
+            "completed_at should not be updated if task was already not completed"
+        );
     }
 
     #[test]
     async fn uncomplete_deleted() {
-        todo!()
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        // uncomplete task
+        let task = create_test_task(
+            &mut tx,
+            Task::default(),
+            None,
+            Some(base_time),
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), false).await;
+        assert!(matches!(
+            res,
+            Err(Error::Application(ApplicationError::TaskNotFound))
+        ));
+
+        // completed task
+        let task = create_test_task(
+            &mut tx,
+            Task::default(),
+            Some(base_time),
+            Some(base_time),
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), false).await;
+        assert!(matches!(
+            res,
+            Err(Error::Application(ApplicationError::TaskNotFound))
+        ));
     }
 
     #[test]
     async fn uncomplete_nonexistent() {
-        todo!()
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let res = complete_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), false).await;
+        assert!(matches!(
+            res,
+            Err(Error::Application(ApplicationError::TaskNotFound))
+        ));
     }
 }
