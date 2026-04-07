@@ -1,3 +1,9 @@
+//! # Task Route Handlers
+//!
+//! This module contains collection of route handler functions for tasks
+
+pub mod tag;
+
 use axum::{
     Json,
     extract::{Path, State},
@@ -7,23 +13,26 @@ use serde_json::json;
 use serde_qs::axum::QsForm as Query;
 use uuid::Uuid;
 
-use crate::{
-    AppState,
-    com::model::{
-        Task, TaskQuery,
-        db::{DateFilter, SortOrder as SortOrderDB},
-        query::{Completed, Pagination, SortBy, SortOrder as SortOrderQuery},
+use super::{
+    Error,
+    models::{
+        Completed, Pagination,
+        task::{Task, TaskFilter as TaskQuery, TaskTagQuery},
     },
-    db::task::{
-        TaskQueryOptions, complete_task, delete_task, insert_task, query_tasks, select_task,
-        update_task,
-    },
-    error::Error,
-    response::{ERR, ErrorResponse, OK, Response, SUCCESS},
     util::Session,
 };
-
-const NOT_FOUND: &str = "task not found";
+use crate::{
+    AppState,
+    db::{
+        TASK_NOT_FOUND,
+        filters::DateFilter,
+        task::{
+            TaskQueryOptions, complete_task, delete_task, insert_task, query_tasks, restore_task,
+            select_task, update_task,
+        },
+    },
+    response::{Response, TaskResponse},
+};
 
 pub async fn query_handler(
     session: Session,
@@ -37,7 +46,7 @@ pub async fn query_handler(
         completed,
         deleted,
     }): Query<TaskQuery>,
-) -> Result<Response, ErrorResponse> {
+) -> Result<Response, Error> {
     let page = i64::try_from(page).map_err(|e| Error::InvalidRequest(e.to_string()))?;
     let limit = i64::try_from(limit).map_err(|e| Error::InvalidRequest(e.to_string()))?;
     let offset = (page - 1) * limit;
@@ -52,35 +61,24 @@ pub async fn query_handler(
     } else {
         None
     };
-    let sort_order = match sort_by {
-        SortBy::Created => match sort_order {
-            SortOrderQuery::Ascending => SortOrderDB::CreatedAsc,
-            SortOrderQuery::Descending => SortOrderDB::CreatedDesc,
-        },
-        SortBy::Updated => match sort_order {
-            SortOrderQuery::Ascending => SortOrderDB::UpdatedAsc,
-            SortOrderQuery::Descending => SortOrderDB::UpdatedDesc,
-        },
-    };
 
     let opts = TaskQueryOptions {
-        user_id: session.user_id,
         limit: Some(limit),
         offset: Some(offset),
+        sort_order: (sort_by, sort_order).into(),
         completed,
         deleted,
         start_filter,
         deadline_filter,
-        sort_order,
     };
 
-    let tasks: Vec<Task> = query_tasks(data.db.pool(), opts)
+    let tasks = query_tasks(data.db.pool(), session.user_id, Some(opts))
         .await
         .map_err(Error::from)?;
 
-    Ok(Response::new(StatusCode::OK).status(OK).data(json!({
+    Ok(Response::new(StatusCode::OK).data(json!({
         "count": tasks.len(),
-        "tasks": tasks,
+        "tasks": tasks.into_iter().map(TaskResponse::from).collect::<Vec<TaskResponse>>(),
     })))
 }
 
@@ -88,30 +86,26 @@ pub async fn create_handler(
     session: Session,
     State(data): State<AppState>,
     Json(body): Json<Task>,
-) -> Result<Response, ErrorResponse> {
-    let task_id = insert_task(data.db.pool(), session.user_id, body)
+) -> Result<Response, Error> {
+    let task = insert_task(data.db.pool(), session.user_id, body)
         .await
         .map_err(Error::from)?;
 
-    Ok(Response::new(StatusCode::CREATED)
-        .status(SUCCESS)
-        .data(json!({"taskId": task_id})))
+    Ok(Response::new(StatusCode::CREATED).data(json!(TaskResponse::from(task))))
 }
 
 pub async fn retrieve_handler(
     session: Session,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
-) -> Result<Response, ErrorResponse> {
+) -> Result<Response, Error> {
     if let Some(task) = select_task(data.db.pool(), task_id, session.user_id)
         .await
         .map_err(Error::from)?
     {
-        Ok(Response::new(StatusCode::OK).status(OK).data(json!(task)))
+        Ok(Response::new(StatusCode::OK).data(json!(TaskResponse::from(task))))
     } else {
-        Err(ErrorResponse::new(StatusCode::NOT_FOUND)
-            .status(ERR)
-            .msg(NOT_FOUND))
+        Err(Error::NotFound(TASK_NOT_FOUND.to_string()))
     }
 }
 
@@ -120,36 +114,43 @@ pub async fn update_handler(
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
     Json(body): Json<Task>,
-) -> Result<Response, ErrorResponse> {
-    if let Some(task) = update_task(data.db.pool(), task_id, session.user_id, body)
+) -> Result<Response, Error> {
+    let task = update_task(data.db.pool(), task_id, session.user_id, body)
         .await
-        .map_err(Error::from)?
-    {
-        Ok(Response::new(StatusCode::OK)
-            .status(SUCCESS)
-            .data(json!(task)))
-    } else {
-        Err(ErrorResponse::new(StatusCode::NOT_FOUND)
-            .status(ERR)
-            .msg(NOT_FOUND))
-    }
+        .map_err(Error::from)?;
+
+    Ok(Response::new(StatusCode::OK).data(json!(TaskResponse::from(task))))
 }
 
 pub async fn delete_handler(
     session: Session,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
-) -> Result<Response, ErrorResponse> {
-    if let Some(()) = delete_task(data.db.pool(), task_id, session.user_id)
+) -> Result<Response, Error> {
+    if let Err(err) = delete_task(data.db.pool(), task_id, session.user_id)
         .await
-        .map_err(Error::from)?
+        .map_err(Error::from)
     {
-        Ok(Response::new(StatusCode::NO_CONTENT))
-    } else {
-        Err(ErrorResponse::new(StatusCode::NOT_FOUND)
-            .status(ERR)
-            .msg(NOT_FOUND))
+        if let Error::NotFound(msg) = err {
+            return Ok(Response::new(StatusCode::NO_CONTENT).message(&msg));
+        } else {
+            return Err(err);
+        }
     }
+
+    Ok(Response::new(StatusCode::NO_CONTENT))
+}
+
+pub async fn restore_handler(
+    session: Session,
+    State(data): State<AppState>,
+    Path(task_id): Path<Uuid>,
+) -> Result<Response, Error> {
+    restore_task(data.db.pool(), task_id, session.user_id)
+        .await
+        .map_err(Error::from)?;
+
+    Ok(Response::new(StatusCode::NO_CONTENT))
 }
 
 pub async fn complete_handler(
@@ -157,124 +158,25 @@ pub async fn complete_handler(
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
     Json(Completed { completed }): Json<Completed>,
-) -> Result<Response, ErrorResponse> {
-    if let Some(()) = complete_task(data.db.pool(), task_id, session.user_id, completed)
+) -> Result<Response, Error> {
+    complete_task(data.db.pool(), task_id, session.user_id, completed)
         .await
-        .map_err(Error::from)?
-    {
-        Ok(Response::new(StatusCode::NO_CONTENT))
-    } else {
-        Err(ErrorResponse::new(StatusCode::NOT_FOUND)
-            .status(ERR)
-            .msg(NOT_FOUND))
-    }
+        .map_err(Error::from)?;
+
+    Ok(Response::new(StatusCode::NO_CONTENT))
 }
 
-pub mod tag {
-    use axum::{
-        Json,
-        extract::{Path, State},
-        http::StatusCode,
-    };
-    use serde_json::json;
-    use uuid::Uuid;
+#[cfg(test)]
+mod query_tests {}
 
-    use crate::{
-        AppState,
-        com::model::query::TaskTag,
-        db::{is_task_exists, task::tag},
-        error::Error,
-        response::{ErrorResponse, OK, Response},
-        routes::task::NOT_FOUND,
-        util::Session,
-    };
+#[cfg(test)]
+mod create_tests {}
 
-    pub async fn query_handler(
-        session: Session,
-        State(data): State<AppState>,
-        Path(task_id): Path<Uuid>,
-    ) -> Result<Response, ErrorResponse> {
-        if !is_task_exists(data.db.pool(), task_id, session.user_id)
-            .await
-            .map_err(Error::from)?
-        {
-            return Err(ErrorResponse::new(StatusCode::NOT_FOUND).msg(NOT_FOUND));
-        }
+#[cfg(test)]
+mod retrieve_tests {}
 
-        let tags = tag::query_task_tags(data.db.pool(), task_id, session.user_id)
-            .await
-            .map_err(Error::from)?;
+#[cfg(test)]
+mod update_tests {}
 
-        Ok(Response::new(StatusCode::OK).status(OK).data(json!({
-            "count": tags.len(),
-            "tags": tags,
-        })))
-    }
-
-    pub async fn create_handler(
-        session: Session,
-        State(data): State<AppState>,
-        Path(TaskTag { task_id, tag_id }): Path<TaskTag>,
-    ) -> Result<Response, ErrorResponse> {
-        if !is_task_exists(data.db.pool(), task_id, session.user_id)
-            .await
-            .map_err(Error::from)?
-        {
-            return Err(ErrorResponse::new(StatusCode::NOT_FOUND).msg(NOT_FOUND));
-        }
-
-        if let Some(()) = tag::add_task_tag(data.db.pool(), task_id, tag_id)
-            .await
-            .map_err(Error::from)?
-        {
-            Ok(Response::new(StatusCode::NO_CONTENT))
-        } else {
-            Ok(Response::new(StatusCode::NOT_FOUND))
-        }
-    }
-
-    pub async fn update_handler(
-        session: Session,
-        State(data): State<AppState>,
-        Path(task_id): Path<Uuid>,
-        Json(tag_ids): Json<Vec<Uuid>>,
-    ) -> Result<Response, ErrorResponse> {
-        if !is_task_exists(data.db.pool(), task_id, session.user_id)
-            .await
-            .map_err(Error::from)?
-        {
-            return Err(ErrorResponse::new(StatusCode::NOT_FOUND).msg(NOT_FOUND));
-        }
-
-        if let Some(()) = tag::update_task_tags(data.db.pool(), task_id, tag_ids)
-            .await
-            .map_err(Error::from)?
-        {
-            Ok(Response::new(StatusCode::NO_CONTENT))
-        } else {
-            Ok(Response::new(StatusCode::NOT_FOUND).msg("one or more tags do not exist"))
-        }
-    }
-
-    pub async fn delete_handler(
-        session: Session,
-        State(data): State<AppState>,
-        Path(TaskTag { task_id, tag_id }): Path<TaskTag>,
-    ) -> Result<Response, ErrorResponse> {
-        if !is_task_exists(data.db.pool(), task_id, session.user_id)
-            .await
-            .map_err(Error::from)?
-        {
-            return Err(ErrorResponse::new(StatusCode::NOT_FOUND).msg(NOT_FOUND));
-        }
-
-        if let Some(()) = tag::delete_task_tag(data.db.pool(), task_id, tag_id)
-            .await
-            .map_err(Error::from)?
-        {
-            Ok(Response::new(StatusCode::NO_CONTENT))
-        } else {
-            Ok(Response::new(StatusCode::NOT_FOUND))
-        }
-    }
-}
+#[cfg(test)]
+mod delete_tests {}

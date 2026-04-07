@@ -9,7 +9,6 @@ use clearlist_api::{AppState, DatabaseConn, create_app, run_migration};
 
 // TODO: add anyhow
 
-// Server Main
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
@@ -34,6 +33,7 @@ async fn main() {
                 // TODO: turn this into a function that can be reused in testing
                 if let Err(e) = run_migration(&mut conn).await {
                     eprintln!("error occured running migration: {}", e);
+
                     std::process::exit(1);
                 }
 
@@ -41,6 +41,7 @@ async fn main() {
             }
             _ => {
                 eprintln!("unknown option found: '{}'", args[1]);
+
                 std::process::exit(1);
             }
         }

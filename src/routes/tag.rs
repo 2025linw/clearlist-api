@@ -1,3 +1,7 @@
+//! # Tag Route Handlers
+//!
+//! This module contains collection of route handler functions for tags
+
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -6,43 +10,49 @@ use axum::{
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::{
-    AppState,
-    com::model::{Tag, TagQuery, query::Pagination},
-    db::tag::{TagQueryOptions, delete_tag, insert_tag, query_tags, select_tag, update_tag},
-    error::Error,
-    response::{ERR, ErrorResponse, OK, Response, SUCCESS},
+use super::{
+    Error,
+    models::{
+        Pagination,
+        tag::{Tag, TagFilter},
+    },
     util::Session,
 };
-
-const NOT_FOUND: &str = "tag not found";
+use crate::{
+    AppState,
+    db::{
+        TAG_NOT_FOUND,
+        tag::{TagQueryOptions, delete_tag, insert_tag, query_tags, select_tag, update_tag},
+    },
+    response::{Response, TagResponse},
+};
 
 pub async fn query_handler(
     session: Session,
     State(data): State<AppState>,
-    Query(TagQuery {
+    Query(TagFilter {
         pagination: Pagination { page, limit },
-        deleted,
-    }): Query<TagQuery>,
-) -> Result<Response, ErrorResponse> {
+        sort_by,
+        sort_order,
+    }): Query<TagFilter>,
+) -> Result<Response, Error> {
     let page = i64::try_from(page).map_err(|e| Error::InvalidRequest(e.to_string()))?;
     let limit = i64::try_from(limit).map_err(|e| Error::InvalidRequest(e.to_string()))?;
     let offset = (page - 1) * limit;
 
     let opts = TagQueryOptions {
-        user_id: session.user_id,
         limit: Some(limit),
         offset: Some(offset),
-        deleted,
+        sort_order: (sort_by, sort_order).into(),
     };
 
-    let tags: Vec<Tag> = query_tags(data.db.pool(), opts)
+    let tags = query_tags(data.db.pool(), session.user_id, opts)
         .await
         .map_err(Error::from)?;
 
-    Ok(Response::new(StatusCode::OK).status(OK).data(json!({
+    Ok(Response::new(StatusCode::OK).data(json!({
         "count": tags.len(),
-        "tags": tags,
+        "tags": tags.into_iter().map(TagResponse::from).collect::<Vec<TagResponse>>(),
     })))
 }
 
@@ -50,30 +60,26 @@ pub async fn create_handler(
     session: Session,
     State(data): State<AppState>,
     Json(body): Json<Tag>,
-) -> Result<Response, ErrorResponse> {
-    let tag_id = insert_tag(data.db.pool(), session.user_id, body)
+) -> Result<Response, Error> {
+    let tag = insert_tag(data.db.pool(), session.user_id, body)
         .await
         .map_err(Error::from)?;
 
-    Ok(Response::new(StatusCode::CREATED)
-        .status(SUCCESS)
-        .data(json!({"tagId": tag_id})))
+    Ok(Response::new(StatusCode::CREATED).data(json!(TagResponse::from(tag))))
 }
 
 pub async fn retrieve_handler(
     session: Session,
     State(data): State<AppState>,
     Path(tag_id): Path<Uuid>,
-) -> Result<Response, ErrorResponse> {
+) -> Result<Response, Error> {
     if let Some(tag) = select_tag(data.db.pool(), tag_id, session.user_id)
         .await
         .map_err(Error::from)?
     {
-        Ok(Response::new(StatusCode::OK).status(OK).data(json!(tag)))
+        Ok(Response::new(StatusCode::OK).data(json!(TagResponse::from(tag))))
     } else {
-        Err(Response::new(StatusCode::NOT_FOUND)
-            .status(ERR)
-            .msg(NOT_FOUND))
+        Err(Error::NotFound(TAG_NOT_FOUND.to_string()))
     }
 }
 
@@ -82,34 +88,44 @@ pub async fn update_handler(
     State(data): State<AppState>,
     Path(tag_id): Path<Uuid>,
     Json(body): Json<Tag>,
-) -> Result<Response, ErrorResponse> {
-    if let Some(tag) = update_tag(data.db.pool(), tag_id, session.user_id, body)
+) -> Result<Response, Error> {
+    let tag = update_tag(data.db.pool(), tag_id, session.user_id, body)
         .await
-        .map_err(Error::from)?
-    {
-        Ok(Response::new(StatusCode::OK)
-            .status(SUCCESS)
-            .data(json!(tag)))
-    } else {
-        Err(Response::new(StatusCode::NOT_FOUND)
-            .status(ERR)
-            .msg(NOT_FOUND))
-    }
+        .map_err(Error::from)?;
+
+    Ok(Response::new(StatusCode::OK).data(json!(TagResponse::from(tag))))
 }
 
 pub async fn delete_handler(
     session: Session,
     State(data): State<AppState>,
     Path(tag_id): Path<Uuid>,
-) -> Result<Response, ErrorResponse> {
-    if let Some(()) = delete_tag(data.db.pool(), tag_id, session.user_id)
+) -> Result<Response, Error> {
+    if let Err(err) = delete_tag(data.db.pool(), tag_id, session.user_id)
         .await
-        .map_err(Error::from)?
+        .map_err(Error::from)
     {
-        Ok(Response::new(StatusCode::NO_CONTENT))
-    } else {
-        Err(Response::new(StatusCode::NOT_FOUND)
-            .status(ERR)
-            .msg(NOT_FOUND))
+        if let Error::NotFound(msg) = err {
+            return Ok(Response::new(StatusCode::NO_CONTENT).message(&msg));
+        } else {
+            return Err(err);
+        }
     }
+
+    Ok(Response::new(StatusCode::NO_CONTENT))
 }
+
+#[cfg(test)]
+mod query_tests {}
+
+#[cfg(test)]
+mod create_tests {}
+
+#[cfg(test)]
+mod retrieve_tests {}
+
+#[cfg(test)]
+mod update_tests {}
+
+#[cfg(test)]
+mod delete_tests {}
