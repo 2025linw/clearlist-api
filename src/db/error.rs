@@ -1,30 +1,34 @@
+//! # Database Error Module
+//!
+//! This module contains Error used across all database functions
+
 use std::error::Error as StdError;
 use std::fmt::Display;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+pub const TASK_NOT_FOUND: &str = "Task not found";
+pub const TAG_NOT_FOUND: &str = "Tag not found";
+
 #[derive(Debug)]
 pub enum Error {
-    /// Error that occurs with the database connection
+    /// Database connection error
     Connection(String),
-    /// Error that occurs with the database pool
+    /// Database pool error
     Pool(String),
-    /// Error that occurs with normal database operation
+    /// Database operation error
     Operation(String),
-    /// Error that breaks application integrity (Application error)
+    /// Application (Business rule) error
     Application(ApplicationError),
-    /// Unknown error with database
-    Miscellaneous(String),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::Connection(msg) => write!(f, "database connection error: {}", msg),
-            Error::Pool(msg) => write!(f, "database pool error: {}", msg),
-            Error::Operation(msg) => write!(f, "database operation error: {}", msg),
-            Error::Application(msg) => write!(f, "application integrity error: {}", msg),
-            Error::Miscellaneous(msg) => write!(f, "miscellaneous database error: {}", msg),
+            Error::Connection(msg) => write!(f, "Database connection error: {}", msg),
+            Error::Pool(msg) => write!(f, "Database pool error: {}", msg),
+            Error::Operation(msg) => write!(f, "Database operation error: {}", msg),
+            Error::Application(msg) => write!(f, "Application integrity error: {}", msg),
         }
     }
 }
@@ -35,17 +39,21 @@ impl StdError for Error {}
 pub enum ApplicationError {
     TaskNotFound,
     TagNotFound,
-
-    /// WARN: do not use, prioritize better management of this
-    Misc(String),
+    InvalidDateRange(String),
+    UncaughtIntegrity(String),
+    UncaughtTrigger(String),
 }
 
 impl Display for ApplicationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ApplicationError::TaskNotFound => write!(f, "task not found"),
-            ApplicationError::TagNotFound => write!(f, "tag not found"),
-            ApplicationError::Misc(msg) => write!(f, "unknown application error: {}", msg),
+            ApplicationError::TaskNotFound => write!(f, "{}", TASK_NOT_FOUND),
+            ApplicationError::TagNotFound => write!(f, "{}", TAG_NOT_FOUND),
+            ApplicationError::InvalidDateRange(msg) => write!(f, "Invalid date range: {}", msg),
+            ApplicationError::UncaughtIntegrity(msg) => {
+                write!(f, "Uncaught integrity error: {}", msg)
+            }
+            ApplicationError::UncaughtTrigger(msg) => write!(f, "Uncaught trigger error: {}", msg),
         }
     }
 }
@@ -61,10 +69,10 @@ impl From<sqlx::Error> for Error {
 
             // errors associated with database pool
             sqlx::Error::PoolTimedOut => {
-                Self::Pool("timed out acquiring connection from pool".to_string())
+                Self::Pool("Timed out acquiring connection from pool".to_string())
             }
             sqlx::Error::PoolClosed => {
-                Self::Pool("pool closed while waiting to acquire connection".to_string())
+                Self::Pool("Pool closed while waiting to acquire connection".to_string())
             }
 
             sqlx::Error::InvalidArgument(msg) => Self::Operation(msg),
@@ -77,12 +85,12 @@ impl From<sqlx::Error> for Error {
 
                     if pg_code == "P0001" {
                         // if error is from a custom raise in a function or trigger function
-                        return Self::Application(ApplicationError::Misc(
+                        return Self::Application(ApplicationError::UncaughtTrigger(
                             database_error.message().to_string(),
                         ));
                     } else if pg_code.starts_with("23") {
                         // if error is related to integrity constraints
-                        return Self::Application(ApplicationError::Misc(
+                        return Self::Application(ApplicationError::UncaughtIntegrity(
                             database_error.message().to_string(),
                         ));
                     }
@@ -93,45 +101,45 @@ impl From<sqlx::Error> for Error {
 
             // errors associated with database operation
             sqlx::Error::RowNotFound => {
-                Self::Operation("no rows returned from query expecting return".to_string())
+                Self::Operation("No rows returned from query expecting return".to_string())
             }
             sqlx::Error::TypeNotFound { type_name } => {
-                Self::Operation(format!("type in query not found: '{}'", type_name))
+                Self::Operation(format!("Type in query not found: '{}'", type_name))
             }
             sqlx::Error::ColumnIndexOutOfBounds { index, len } => Self::Operation(format!(
-                "column index {} out of bounds (length: {})",
+                "Column index {} out of bounds (length: {})",
                 index, len
             )),
             sqlx::Error::ColumnNotFound(column) => {
-                Self::Operation(format!("column '{}' not found", column))
+                Self::Operation(format!("Column '{}' not found", column))
             }
             sqlx::Error::ColumnDecode { index, source } => {
-                Self::Operation(format!("unable to decode column '{}': {}", index, source))
+                Self::Operation(format!("Unable to decode column '{}': {}", index, source))
             }
             sqlx::Error::Encode(error) => {
-                Self::Operation(format!("error encoding value: {}", error))
+                Self::Operation(format!("Error encoding value: {}", error))
             }
             sqlx::Error::Decode(error) => {
-                Self::Operation(format!("error decoding value: {}", error))
+                Self::Operation(format!("Error decoding value: {}", error))
             }
             sqlx::Error::BeginFailed => {
-                Self::Operation("error beginning database transaction".to_string())
+                Self::Operation("Error beginning database transaction".to_string())
             }
             sqlx::Error::InvalidSavePointStatement => {
-                Self::Operation("error with savepoint statement".to_string())
+                Self::Operation("Error with savepoint statement".to_string())
             }
 
             // errors associated with miscellaneous database operations
-            sqlx::Error::AnyDriverError(error) => Self::Miscellaneous(format!(
-                "error mapping between Any driver and Postgres driver: {}",
+            sqlx::Error::AnyDriverError(error) => Self::Operation(format!(
+                "Error mapping between Any driver and Postgres driver: {}",
                 error
             )),
             sqlx::Error::WorkerCrashed => {
-                Self::Miscellaneous("database background worker crashed".to_string())
+                Self::Operation("Database background worker crashed".to_string())
             }
-            sqlx::Error::Migrate(migrate_error) => Self::Miscellaneous(migrate_error.to_string()),
+            sqlx::Error::Migrate(migrate_error) => Self::Operation(migrate_error.to_string()),
 
-            unknown => panic!("found uncaught error from database: {}", unknown),
+            unknown => panic!("Found uncaught error from database: {}", unknown),
         }
     }
 }

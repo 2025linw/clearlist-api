@@ -1,6 +1,9 @@
-pub mod model;
-pub mod util;
+//! Common Module
+//!
+//! `com` contains all function used throughout the codebase and serves as a way to link layers together
+//!
+//! Contains:
+//!
+//! * Conversions between route- and database-level types
 
-mod error;
-
-pub use error::Error;
+mod conversions;

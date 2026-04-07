@@ -1,13 +1,14 @@
-//! # Tag
+//! # Database Tag Module
 //!
-//! `tag` contains collection of database functions for Tags
+//! This module contains collection of database functions for tags
 
 use sqlx::{PgConnection, PgPool, QueryBuilder};
 use uuid::Uuid;
 
-use crate::com::model::{Tag, db::SortOrder};
-
-use super::{ApplicationError, DEFAULT_LIMIT, Error, MAX_LIMIT, Result, query_as_wrapper};
+use super::{
+    ApplicationError, DEFAULT_LIMIT, Error, MAX_LIMIT, Result, filters::SortOrder, query_as_wrapper,
+};
+use crate::{models::Tag, routes::models::tag::Tag as TagCreate};
 
 /// Options for query tags in database
 ///
@@ -87,10 +88,10 @@ async fn query_tags_inner(
 /// `None`, if it does not exist
 pub async fn select_tag(pool: PgPool, tag_id: Uuid, user_id: Uuid) -> Result<Option<Tag>> {
     let mut conn = pool.acquire().await?;
-    let tag = select_tag_inner(&mut conn, tag_id, user_id).await?;
+    let tag_opt = select_tag_inner(&mut conn, tag_id, user_id).await?;
     conn.close().await?;
 
-    Ok(tag)
+    Ok(tag_opt)
 }
 
 /// Internal function for `select_tag`
@@ -125,9 +126,9 @@ async fn select_tag_inner(
 /// # Returns
 ///
 /// Created tag
-pub async fn insert_tag(pool: PgPool, user_id: Uuid, tag: Tag) -> Result<Tag> {
+pub async fn insert_tag(pool: PgPool, user_id: Uuid, insert_tag: TagCreate) -> Result<Tag> {
     let mut tx = pool.begin().await?;
-    let tag = insert_tag_inner(&mut tx, user_id, tag).await?;
+    let tag = insert_tag_inner(&mut tx, user_id, insert_tag).await?;
     tx.commit().await?;
 
     Ok(tag)
@@ -136,14 +137,18 @@ pub async fn insert_tag(pool: PgPool, user_id: Uuid, tag: Tag) -> Result<Tag> {
 /// Internal function for `insert_tag`
 ///
 /// Only used internally
-async fn insert_tag_inner(conn: &mut PgConnection, user_id: Uuid, tag: Tag) -> Result<Tag> {
+async fn insert_tag_inner(
+    conn: &mut PgConnection,
+    user_id: Uuid,
+    insert_tag: TagCreate,
+) -> Result<Tag> {
     let tag = query_as_wrapper::<Tag>(
         "INSERT INTO app.tags (label, category, created_by)
         VALUES ($1, $2, $3)
         RETURNING id",
     )
-    .bind(tag.label)
-    .bind(tag.category)
+    .bind(insert_tag.label)
+    .bind(insert_tag.category)
     .bind(user_id)
     .fetch_one(conn.as_mut())
     .await?;
@@ -163,9 +168,14 @@ async fn insert_tag_inner(conn: &mut PgConnection, user_id: Uuid, tag: Tag) -> R
 /// # Returns
 ///
 /// Updated tag
-pub async fn update_tag(pool: PgPool, tag_id: Uuid, user_id: Uuid, tag: Tag) -> Result<Tag> {
+pub async fn update_tag(
+    pool: PgPool,
+    tag_id: Uuid,
+    user_id: Uuid,
+    update_tag: TagCreate,
+) -> Result<Tag> {
     let mut tx = pool.begin().await?;
-    let tag = update_tag_inner(&mut tx, tag_id, user_id, tag).await?;
+    let tag = update_tag_inner(&mut tx, tag_id, user_id, update_tag).await?;
     tx.commit().await?;
 
     Ok(tag)
@@ -178,7 +188,7 @@ async fn update_tag_inner(
     conn: &mut PgConnection,
     tag_id: Uuid,
     user_id: Uuid,
-    tag: Tag,
+    update_tag: TagCreate,
 ) -> Result<Tag> {
     let tag_opt = query_as_wrapper::<Tag>(
         "UPDATE app.tags SET
@@ -189,8 +199,8 @@ async fn update_tag_inner(
     )
     .bind(tag_id)
     .bind(user_id)
-    .bind(tag.label)
-    .bind(tag.category)
+    .bind(update_tag.label)
+    .bind(update_tag.category)
     .fetch_optional(conn.as_mut())
     .await?;
 

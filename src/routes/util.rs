@@ -1,16 +1,47 @@
+//! # Route Utility Module
+//!
+//! This module contains utilities used in routes, such as session extractors and rate limiters
+
 use std::{env, sync::LazyLock};
 
 use axum::{extract::FromRequestParts, http::StatusCode};
 use axum_extra::extract::CookieJar;
 use chrono::{DateTime, Utc};
+use governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
 use sqlx::{FromRow, Postgres};
+use tower_governor::{
+    governor::{GovernorConfig, GovernorConfigBuilder},
+    key_extractor::SmartIpKeyExtractor,
+};
 use uuid::Uuid;
 
 use crate::AppState;
 
+/// Key for cookie holding authorization session token
 static COOKIE_KEY: LazyLock<String> =
     LazyLock::new(|| env::var("COOKIE_KEY").unwrap_or("better-auth.session_token".to_string()));
 
+/// Creates a rate limiter
+///
+/// # Arguments
+///
+/// * `num_requests`: request quota
+/// * `refresh_rate`: rate in which quotas are replenished in quota
+pub fn create_rate_limiter(
+    num_requests: u32,
+    refresh_rate: u64,
+) -> GovernorConfig<SmartIpKeyExtractor, NoOpMiddleware<QuantaInstant>> {
+    GovernorConfigBuilder::default()
+        .key_extractor(SmartIpKeyExtractor)
+        .burst_size(num_requests)
+        .per_second(refresh_rate)
+        .finish()
+        .unwrap()
+}
+
+/// Session extractor for Axum handler
+///
+/// Used for routes that require authorization
 #[derive(Debug, FromRow)]
 #[sqlx(rename_all = "camelCase")]
 pub struct Session {
@@ -22,6 +53,14 @@ pub struct Session {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
+}
+
+impl std::ops::Deref for Session {
+    type Target = Uuid;
+
+    fn deref(&self) -> &Self::Target {
+        &self.user_id
+    }
 }
 
 impl FromRequestParts<AppState> for Session {
@@ -42,7 +81,7 @@ impl FromRequestParts<AppState> for Session {
             .value_trimmed()
             .split('.')
             .next()
-            .unwrap();
+            .unwrap(); // TODO: do not unwrap here
 
         let conn = state.db.pool();
         let session: Session = match sqlx::query_as::<Postgres, Session>(
@@ -64,6 +103,9 @@ impl FromRequestParts<AppState> for Session {
     }
 }
 
+/// Session extractor for Axum handler
+///
+/// Used for routes that don't require authorization
 pub type OptionalSession = Option<Session>;
 
 impl FromRequestParts<AppState> for OptionalSession {

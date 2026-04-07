@@ -1,66 +1,149 @@
-use std::collections::HashMap;
+//! # Response Module
+//!
+//! This module contains Response type representing response back to client from API
 
-use axum::{Json, http::StatusCode};
-use serde_json::Value;
+use axum::{Json, http::StatusCode, response::IntoResponse};
+use chrono::Utc;
+use serde::Serialize;
+use serde_json::{Map, Value};
 
-use crate::error::Error;
+use crate::{
+    models::{Tag, Task},
+    routes::models::Start,
+};
 
-pub const OK: &str = "ok";
-pub const SUCCESS: &str = "success";
-pub const ERR: &str = "error";
-
+/// Response type representing a JSON response
+///
+/// This can be converted into an Axum Response to be returned as JSON response with a status code
 pub struct Response {
     code: StatusCode,
-    json_map: HashMap<String, serde_json::Value>,
+    message: Option<String>,
+    data: Option<Value>,
+    custom: Map<String, Value>,
 }
 
-pub type ErrorResponse = Response;
-
 impl Response {
+    /// Creates a new empty body response with a StatusCode
     pub fn new(code: StatusCode) -> Self {
         Self {
             code,
-            json_map: HashMap::new(),
+            message: None,
+            data: None,
+            custom: Map::new(),
         }
     }
 
-    pub fn add_kv(mut self, key: &str, value: Value) -> Self {
-        self.json_map.insert(key.to_string(), value);
+    /// Add message to response
+    pub fn message(mut self, msg: &str) -> Self {
+        self.message = Some(msg.to_string());
 
         self
     }
 
-    pub fn status(self, status: &str) -> Self {
-        self.add_kv("status", Value::String(status.to_string()))
+    /// Add data to response
+    pub fn data(mut self, data: Value) -> Self {
+        self.data = Some(data);
+
+        self
     }
 
-    pub fn msg(self, msg: &str) -> Self {
-        self.add_kv("message", Value::String(msg.to_string()))
-    }
+    pub(crate) fn add_kv(mut self, key: &str, value: Value) -> Self {
+        self.custom.insert(key.to_string(), value);
 
-    pub fn data(self, data: serde_json::Value) -> Self {
-        self.add_kv("data", data)
+        self
     }
 }
 
-impl From<Error> for Response {
-    fn from(value: Error) -> Self {
-        match value {
-            Error::NotFound(msg) => Self::new(StatusCode::NOT_FOUND).msg(&msg),
-            Error::InvalidRequest(msg) => Self::new(StatusCode::BAD_REQUEST).status(ERR).msg(&msg),
-            Error::InternalServer(msg) => Self::new(StatusCode::INTERNAL_SERVER_ERROR)
-                .status(ERR)
-                .msg(&msg),
+impl IntoResponse for Response {
+    fn into_response(self) -> axum::response::Response {
+        if self.code == StatusCode::NO_CONTENT {
+            (self.code).into_response()
+        } else {
+            let mut body: Map<String, Value> = Map::new();
+
+            if let Some(message) = self.message {
+                body.insert("message".to_string(), Value::String(message));
+            }
+
+            if let Some(data) = self.data {
+                body.insert("data".to_string(), data);
+            }
+
+            if !self.custom.is_empty() {
+                for (key, value) in self.custom {
+                    body.insert(key, value);
+                }
+            }
+
+            (self.code, Json::from(Value::Object(body))).into_response()
         }
     }
 }
 
-impl axum::response::IntoResponse for Response {
-    fn into_response(self) -> axum::response::Response {
-        if self.json_map.is_empty() {
-            (self.code).into_response()
+#[derive(Serialize)]
+pub struct TaskResponse {
+    pub id: uuid::Uuid,
+
+    pub title: String,
+    pub notes: Option<String>,
+    pub start: Option<Start>,
+    pub deadline: Option<chrono::NaiveDate>,
+    pub tags: Vec<TagResponse>,
+
+    pub completed_at: Option<chrono::DateTime<Utc>>,
+    pub deleted_at: Option<chrono::DateTime<Utc>>,
+
+    pub created_at: chrono::DateTime<Utc>,
+    pub updated_at: chrono::DateTime<Utc>,
+}
+
+impl From<Task> for TaskResponse {
+    fn from(value: Task) -> Self {
+        if value.start_on.is_some() && value.start_at.is_some() {
+            // TODO: no panic
+            panic!("have both start_on and start_at");
+        }
+
+        let start = if let Some(date) = value.start_on {
+            Some(Start::On(date))
         } else {
-            (self.code, Json::from(self.json_map)).into_response()
+            value.start_at.map(Start::At)
+        };
+
+        Self {
+            id: value.id,
+            title: value.title,
+            notes: value.notes,
+            start,
+            deadline: value.deadline,
+            tags: value.tags.into_iter().map(TagResponse::from).collect(),
+            completed_at: value.completed_at,
+            deleted_at: value.deleted_at,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct TagResponse {
+    pub id: uuid::Uuid,
+
+    pub label: String,
+    pub category: Option<String>,
+
+    pub created_at: chrono::DateTime<Utc>,
+    pub updated_at: chrono::DateTime<Utc>,
+}
+
+impl From<Tag> for TagResponse {
+    fn from(value: Tag) -> Self {
+        Self {
+            id: value.id,
+            label: value.label,
+            category: value.category,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
         }
     }
 }

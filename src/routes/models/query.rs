@@ -1,9 +1,12 @@
-use chrono::NaiveDate;
-use serde::Deserialize;
-use serde_with::{DisplayFromStr, serde_as};
-use uuid::Uuid;
+//! Route Query Models
+//!
+//! This module contains types used for various queries and filters
 
-use crate::com::util::deserialize_daterange;
+use std::borrow::Cow;
+
+use chrono::NaiveDate;
+use serde::{Deserialize, Deserializer, de::Error};
+use serde_with::{DisplayFromStr, serde_as};
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
@@ -28,7 +31,7 @@ pub enum DateFilter {
 
     BracketInterval(BracketInterval),
 
-    #[serde(deserialize_with = "deserialize_daterange")]
+    #[serde(deserialize_with = "deserialize_iso8601daterange")]
     ISO8601Interval(ISO8601Interval),
 }
 
@@ -42,12 +45,6 @@ pub struct BracketInterval {
 }
 
 pub type ISO8601Interval = [NaiveDate; 2];
-
-#[derive(Debug, Deserialize)]
-pub struct TaskTag {
-    pub task_id: Uuid,
-    pub tag_id: Uuid,
-}
 
 #[derive(Debug, Default, Deserialize)]
 pub enum SortBy {
@@ -72,4 +69,35 @@ pub enum SortOrder {
 #[derive(Debug, Deserialize)]
 pub struct Completed {
     pub completed: bool,
+}
+
+pub fn deserialize_iso8601daterange<'de, D>(deserialize: D) -> Result<[NaiveDate; 2], D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: Cow<'_, str> = Deserialize::deserialize(deserialize)?;
+
+    if s.trim().is_empty() {
+        return Err(D::Error::custom("Date range cannot be empty"));
+    }
+
+    let mut parts = s.split('/');
+
+    let start = parts
+        .next()
+        .ok_or_else(|| D::Error::custom("Missing start date"))?
+        .parse::<NaiveDate>()
+        .map_err(D::Error::custom)?;
+
+    let end = parts
+        .next()
+        .ok_or_else(|| D::Error::custom("Missing end date"))?
+        .parse::<NaiveDate>()
+        .map_err(D::Error::custom)?;
+
+    if parts.next().is_some() {
+        return Err(D::Error::custom("Found too many dates in range"));
+    }
+
+    Ok([start, end])
 }

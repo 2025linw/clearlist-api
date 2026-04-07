@@ -1,7 +1,10 @@
+//! Clear List API Library
+//!
+//! This module is the main library used to create Clear List API web server
+
 mod com;
-mod error;
+mod models;
 mod response;
-mod util;
 
 mod db;
 mod routes;
