@@ -6,6 +6,7 @@ pub mod models;
 
 mod error;
 mod util;
+
 mod tag;
 mod task;
 

@@ -8,3 +8,6 @@ target
 **/.env
 **/.env.*
 !**/.env.template
+
+# IDE Setup
+.vscode

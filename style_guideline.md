@@ -3,15 +3,15 @@
 ## Module
 
 ```rust
-//! # Math
+//! # Math Module
 //!
-//! `math` contains collection of functions to perform mathematics operations
+//! This module contains collection of functions to perform mathematics operations
 ```
 
 ## Structs/Enums
 
 ```rust
-/// Complex number type
+/// Complex Number Type
 struct Complex {
     real: i64,
     imag: i64,
@@ -19,7 +19,7 @@ struct Complex {
 ```
 
 ```rust
-/// Number types used for identifying number formats
+/// Number Type Representation
 enum NumberType {
     Integer,
     Float,
