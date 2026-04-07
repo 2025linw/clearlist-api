@@ -3450,6 +3450,81 @@ mod update_tests {
     }
 
     #[test]
+    async fn deleted_task() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now();
+
+        let task = create_test_task(
+            &mut tx,
+            TaskCreate::default(),
+            None,
+            Some(base_time),
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = update_task_inner(&mut tx, task.id, Uuid::nil(), TaskCreate::default()).await;
+        assert!(matches!(
+            res,
+            Err(Error::Application(ApplicationError::TaskNotFound))
+        ));
+    }
+
+    // TODO: uncomment when updates are finally idempotent
+    // #[test]
+    // async fn is_idempotent() {
+    //     let pool = get_pool().await;
+    //     let mut tx = pool.begin().await.unwrap();
+
+    //     let base_time = Utc::now();
+
+    //     let before_task = create_test_task(
+    //         &mut tx,
+    //         TaskCreate::default(),
+    //         None,
+    //         None,
+    //         base_time,
+    //         base_time,
+    //     )
+    //     .await;
+
+    //     let task_update: TaskCreate = before_task.clone().into();
+
+    //     let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), task_update).await;
+    //     assert!(res.is_ok());
+
+    //     let after_task = res.unwrap();
+    //     assert_eq!(before_task.id, after_task.id);
+    //     assert_eq!(before_task.title, after_task.title);
+    //     assert_eq!(before_task.notes, after_task.notes);
+    //     assert_eq!(before_task.start_on, after_task.start_on);
+    //     assert_eq!(before_task.start_at, after_task.start_at);
+    //     assert_eq!(before_task.deadline, after_task.deadline);
+    //     assert_eq!(before_task.tags, after_task.tags);
+    //     assert_eq!(before_task.completed_at, after_task.completed_at);
+    //     assert_eq!(before_task.deleted_at, after_task.deleted_at);
+    //     assert_eq!(before_task.created_at, after_task.created_at);
+    //     assert_eq!(before_task.updated_at, after_task.updated_at);
+    //     assert_eq!(before_task.created_by, after_task.created_by);
+    // }
+
+    #[test]
+    async fn nonexistent_task() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let res =
+            update_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), TaskCreate::default()).await;
+        assert!(matches!(
+            res,
+            Err(Error::Application(ApplicationError::TaskNotFound))
+        ));
+    }
+
+    #[test]
     async fn combination_1() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
@@ -3727,7 +3802,7 @@ mod delete_tests {
     }
 
     #[test]
-    async fn deleted_twice() {
+    async fn is_idempotent() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
@@ -3859,7 +3934,7 @@ mod restore_tests {
     }
 
     #[test]
-    async fn restore_twice() {
+    async fn is_idempotent() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
@@ -3992,7 +4067,7 @@ mod complete_tests {
     }
 
     #[test]
-    async fn complete_twice() {
+    async fn complete_is_idempotent() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
@@ -4151,7 +4226,7 @@ mod complete_tests {
     }
 
     #[test]
-    async fn uncomplete_twice() {
+    async fn uncomplete_is_idempotent() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
