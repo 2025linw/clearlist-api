@@ -1,5 +1,0 @@
-name: dev
-color: "#CE4F3B"
-variables:
-  - name: base-url
-    value: http://localhost:5000
