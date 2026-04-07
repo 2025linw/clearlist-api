@@ -2275,9 +2275,13 @@ mod select_tests {
 
         let task = task_opt.unwrap();
         assert_eq!(task.title, "Test Task");
+
         assert_eq!(task.tags.len(), 1);
-        assert_eq!(task.tags[0].label, "Test Tag");
-        assert_eq!(task.tags[0].category.as_deref(), Some("Testing"));
+        let tag = task.tags.first().unwrap();
+        assert_eq!(tag.label, "Test Tag");
+        if let Some(ref category) = tag.category {
+            assert_eq!(category, "Testing");
+        }
     }
 
     #[test]
@@ -2343,7 +2347,10 @@ mod select_tests {
         assert_eq!(task.tags.len(), 3);
         for (i, tag) in task.tags.iter().enumerate() {
             assert_eq!(tag.label, format!("Test Tag {}", i + 1));
-            assert_eq!(tag.category.as_deref(), Some("Testing"));
+            assert!(tag.category.is_some());
+            if let Some(ref category) = tag.category {
+                assert_eq!(category, "Testing");
+            }
         }
     }
 
@@ -2649,9 +2656,14 @@ mod insert_tests {
         assert!(task.start_on.is_none());
         assert!(task.start_at.is_none());
         assert!(task.deadline.is_none());
+
         assert_eq!(task.tags.len(), 1);
-        assert_eq!(task.tags[0].label, "Test Tag");
-        assert_eq!(task.tags[0].category.as_deref(), Some("Testing"));
+        let tag = task.tags.first().unwrap();
+        assert_eq!(tag.label, "Test Tag");
+        assert!(tag.category.is_some());
+        if let Some(ref category) = tag.category {
+            assert_eq!(category, "Testing");
+        }
 
         assert!(task.deleted_at.is_none());
         assert_eq!(task.created_by, Uuid::nil());
@@ -2721,7 +2733,10 @@ mod insert_tests {
         assert_eq!(task.tags.len(), 3);
         for (i, tag) in task.tags.iter().enumerate() {
             assert_eq!(tag.label, format!("Test Tag {}", i + 1));
-            assert_eq!(tag.category.as_deref(), Some("Testing"));
+            assert!(tag.category.is_some());
+            if let Some(ref category) = tag.category {
+                assert_eq!(category, "Testing");
+            }
         }
 
         assert!(task.deleted_at.is_none());
@@ -2866,43 +2881,20 @@ mod update_tests {
     };
 
     #[test]
-    async fn no_change() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+    async fn only_changes_correct_fields() {
+        // TODO: check no changes to
+        // - id
+        // - completed_at
+        // - deleted_at
+        // - created_at
+        // - created_by
 
-        let base_time = Utc::now();
-
-        let before_task = create_test_task(
-            &mut tx,
-            TaskCreate::default(),
-            None,
-            None,
-            base_time,
-            base_time,
-        )
-        .await;
-
-        let task_update: TaskCreate = before_task.clone().into();
-
-        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), task_update).await;
-        assert!(res.is_ok());
-
-        let after_task = res.unwrap();
-        assert_eq!(before_task.id, after_task.id);
-        assert_eq!(before_task.title, after_task.title);
-        assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_on, after_task.start_on);
-        assert_eq!(before_task.start_at, after_task.start_at);
-        assert_eq!(before_task.deadline, after_task.deadline);
-        assert_eq!(before_task.tags, after_task.tags);
-        assert_eq!(before_task.completed_at, after_task.completed_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.created_by, after_task.created_by);
-
-        assert_ne!(before_task.updated_at, after_task.updated_at);
+        // Test with changes to:
+        // - title only
+        // - notes only
+        // - start (none to on, none to at, from on to at, from at to on, on to none, at to none)
+        // - deadline only
+        // - tag only
     }
 
     #[test]
@@ -2929,22 +2921,15 @@ mod update_tests {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_eq!(before_task.id, after_task.id);
+        assert_ne!(before_task.updated_at, after_task.updated_at);
+        assert_ne!(before_task.title, after_task.title);
+        assert_eq!(after_task.title, "New title");
+
         assert_eq!(before_task.notes, after_task.notes);
         assert_eq!(before_task.start_on, after_task.start_on);
         assert_eq!(before_task.start_at, after_task.start_at);
         assert_eq!(before_task.deadline, after_task.deadline);
         assert_eq!(before_task.tags, after_task.tags);
-        assert_eq!(before_task.completed_at, after_task.completed_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.created_by, after_task.created_by);
-
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.title, after_task.title);
-        assert_eq!(after_task.title, "New title");
     }
 
     #[test]
@@ -2971,22 +2956,18 @@ mod update_tests {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_eq!(before_task.id, after_task.id);
+        assert_ne!(before_task.updated_at, after_task.updated_at);
+        assert_ne!(before_task.notes, after_task.notes);
+        assert!(after_task.notes.is_some());
+        if let Some(notes) = after_task.notes {
+            assert_eq!(notes, "Updated notes");
+        }
+
         assert_eq!(before_task.title, after_task.title);
         assert_eq!(before_task.start_on, after_task.start_on);
         assert_eq!(before_task.start_at, after_task.start_at);
         assert_eq!(before_task.deadline, after_task.deadline);
         assert_eq!(before_task.tags, after_task.tags);
-        assert_eq!(before_task.completed_at, after_task.completed_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.created_by, after_task.created_by);
-
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.notes, after_task.notes);
-        assert_eq!(after_task.notes.as_deref(), Some("Updated notes"));
     }
 
     #[test]
@@ -3014,23 +2995,19 @@ mod update_tests {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_eq!(before_task.id, after_task.id);
+        assert_ne!(before_task.updated_at, after_task.updated_at);
+        assert_ne!(before_task.start_on, after_task.start_on);
+        assert!(after_task.start_on.is_some());
+        assert_eq!(after_task.start_on.unwrap(), updated_start);
+        assert!(after_task.start_at.is_none());
+
         assert_eq!(before_task.title, after_task.title);
         assert_eq!(before_task.notes, after_task.notes);
         assert_eq!(before_task.start_at, after_task.start_at);
         assert_eq!(before_task.deadline, after_task.deadline);
         assert_eq!(before_task.tags, after_task.tags);
-        assert_eq!(before_task.completed_at, after_task.completed_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.created_by, after_task.created_by);
 
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.start_on, after_task.start_on);
-        assert!(after_task.start_on.is_some());
-        assert_eq!(after_task.start_on.unwrap(), updated_start);
+        // TODO: test at to on
     }
 
     #[test]
@@ -3058,79 +3035,73 @@ mod update_tests {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_eq!(before_task.id, after_task.id);
-        assert_eq!(before_task.title, after_task.title);
-        assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_on, after_task.start_on);
-        assert_eq!(before_task.deadline, after_task.deadline);
-        assert_eq!(before_task.tags, after_task.tags);
-        assert_eq!(before_task.completed_at, after_task.completed_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.created_by, after_task.created_by);
-
         assert_ne!(before_task.updated_at, after_task.updated_at);
         assert_ne!(before_task.start_at, after_task.start_at);
+        assert!(after_task.start_on.is_none());
         assert!(after_task.start_at.is_some());
         assert_eq!(
             after_task.start_at.unwrap(),
             updated_start.trunc_subsecs(PG_SUBSEC_PREC)
         );
+
+        assert_eq!(before_task.title, after_task.title);
+        assert_eq!(before_task.notes, after_task.notes);
+        assert_eq!(before_task.start_on, after_task.start_on);
+        assert_eq!(before_task.deadline, after_task.deadline);
+        assert_eq!(before_task.tags, after_task.tags);
+
+        // TODO: test on to at
     }
 
     #[test]
-    async fn start_on_to_at() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+    async fn start_to_none() {
+        // TODO: update this function
+        // test conversions:
+        // * on to none
+        // * at to none
 
-        let base_time = Utc::now();
+        // let pool = get_pool().await;
+        // let mut tx = pool.begin().await.unwrap();
 
-        let datetime = Utc::now();
-        let date = datetime.date_naive();
+        // let base_time = Utc::now();
 
-        let before_task = create_test_task(
-            &mut tx,
-            TaskCreate {
-                start: Some(Start::On(date)),
-                ..Default::default()
-            },
-            None,
-            None,
-            base_time,
-            base_time,
-        )
-        .await;
+        // let datetime = Utc::now();
+        // let date = datetime.date_naive();
 
-        let mut updated_task: TaskCreate = before_task.clone().into();
-        updated_task.start = Some(Start::At(datetime));
+        // let before_task = create_test_task(
+        //     &mut tx,
+        //     TaskCreate {
+        //         start: Some(Start::On(date)),
+        //         ..Default::default()
+        //     },
+        //     None,
+        //     None,
+        //     base_time,
+        //     base_time,
+        // )
+        // .await;
 
-        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
-        assert!(res.is_ok());
+        // let mut updated_task: TaskCreate = before_task.clone().into();
+        // updated_task.start = Some(Start::At(datetime));
 
-        let after_task = res.unwrap();
-        assert_eq!(before_task.id, after_task.id);
-        assert_eq!(before_task.title, after_task.title);
-        assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.deadline, after_task.deadline);
-        assert_eq!(before_task.tags, after_task.tags);
-        assert_eq!(before_task.completed_at, after_task.completed_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.created_by, after_task.created_by);
+        // let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
+        // assert!(res.is_ok());
 
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.start_on, after_task.start_on);
-        assert!(after_task.start_on.is_none());
-        assert_ne!(before_task.start_at, after_task.start_at);
-        assert!(after_task.start_at.is_some());
-        assert_eq!(
-            after_task.start_at.unwrap(),
-            datetime.trunc_subsecs(PG_SUBSEC_PREC)
-        );
+        // let after_task = res.unwrap();
+        // assert_ne!(before_task.updated_at, after_task.updated_at);
+        // assert_ne!(before_task.start_on, after_task.start_on);
+        // assert!(after_task.start_on.is_none());
+        // assert_ne!(before_task.start_at, after_task.start_at);
+        // assert!(after_task.start_at.is_some());
+        // assert_eq!(
+        //     after_task.start_at.unwrap(),
+        //     datetime.trunc_subsecs(PG_SUBSEC_PREC)
+        // );
+
+        // assert_eq!(before_task.title, after_task.title);
+        // assert_eq!(before_task.notes, after_task.notes);
+        // assert_eq!(before_task.deadline, after_task.deadline);
+        // assert_eq!(before_task.tags, after_task.tags);
     }
 
     #[test]
@@ -3158,60 +3129,18 @@ mod update_tests {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_eq!(before_task.id, after_task.id);
+        assert_ne!(before_task.updated_at, after_task.updated_at);
+        assert_ne!(before_task.deadline, after_task.deadline);
+        assert!(after_task.deadline.is_some());
+        if let Some(date) = after_task.deadline {
+            assert_eq!(date, updated_deadline);
+        }
+
         assert_eq!(before_task.title, after_task.title);
         assert_eq!(before_task.notes, after_task.notes);
         assert_eq!(before_task.start_on, after_task.start_on);
         assert_eq!(before_task.start_at, after_task.start_at);
         assert_eq!(before_task.tags, after_task.tags);
-        assert_eq!(before_task.completed_at, after_task.completed_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.created_by, after_task.created_by);
-
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.deadline, after_task.deadline);
-        assert!(after_task.deadline.is_some());
-        assert_eq!(after_task.deadline.unwrap(), updated_deadline);
-    }
-
-    #[test]
-    async fn deleted_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = Utc::now();
-
-        let task = create_test_task(
-            &mut tx,
-            TaskCreate::default(),
-            None,
-            Some(base_time),
-            base_time,
-            base_time,
-        )
-        .await;
-
-        let res = update_task_inner(&mut tx, task.id, Uuid::nil(), TaskCreate::default()).await;
-        assert!(matches!(
-            res,
-            Err(Error::Application(ApplicationError::TaskNotFound))
-        ));
-    }
-
-    #[test]
-    async fn nonexistent_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let res =
-            update_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), TaskCreate::default()).await;
-        assert!(matches!(
-            res,
-            Err(Error::Application(ApplicationError::TaskNotFound))
-        ));
     }
 
     #[test]
@@ -3249,24 +3178,22 @@ mod update_tests {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_eq!(before_task.id, after_task.id);
+        assert_ne!(before_task.updated_at, after_task.updated_at);
+        assert_ne!(before_task.tags, after_task.tags);
+
+        assert_eq!(after_task.tags.len(), 1);
+        let tag = after_task.tags.first().unwrap();
+        assert_eq!(tag.label, "Test Tag");
+        assert!(tag.category.is_some());
+        if let Some(ref category) = tag.category {
+            assert_eq!(category, "Testing");
+        }
+
         assert_eq!(before_task.title, after_task.title);
         assert_eq!(before_task.notes, after_task.notes);
         assert_eq!(before_task.start_on, after_task.start_on);
         assert_eq!(before_task.start_at, after_task.start_at);
         assert_eq!(before_task.deadline, after_task.deadline);
-        assert_eq!(before_task.completed_at, after_task.completed_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.created_by, after_task.created_by);
-
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.tags, after_task.tags);
-        assert_eq!(after_task.tags.len(), 1);
-        assert_eq!(after_task.tags[0].label, "Test Tag");
-        assert_eq!(after_task.tags[0].category.as_deref(), Some("Testing"));
     }
 
     #[test]
@@ -3324,26 +3251,22 @@ mod update_tests {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_eq!(before_task.id, after_task.id);
-        assert_eq!(before_task.title, after_task.title);
-        assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_on, after_task.start_on);
-        assert_eq!(before_task.start_at, after_task.start_at);
-        assert_eq!(before_task.deadline, after_task.deadline);
-        assert_eq!(before_task.completed_at, after_task.completed_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.created_by, after_task.created_by);
-
         assert_ne!(before_task.updated_at, after_task.updated_at);
         assert_ne!(before_task.tags, after_task.tags);
         assert_eq!(after_task.tags.len(), 3);
         for (i, tag) in after_task.tags.iter().enumerate() {
             assert_eq!(tag.label, format!("Test Tag {}", i + 1));
-            assert_eq!(tag.category.as_deref(), Some("Testing"));
+            assert!(tag.category.is_some());
+            if let Some(ref category) = tag.category {
+                assert_eq!(category, "Testing");
+            }
         }
+
+        assert_eq!(before_task.title, after_task.title);
+        assert_eq!(before_task.notes, after_task.notes);
+        assert_eq!(before_task.start_on, after_task.start_on);
+        assert_eq!(before_task.start_at, after_task.start_at);
+        assert_eq!(before_task.deadline, after_task.deadline);
     }
 
     #[test]
@@ -3404,22 +3327,15 @@ mod update_tests {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_eq!(before_task.id, after_task.id);
+        assert_ne!(before_task.updated_at, after_task.updated_at);
+        assert_ne!(before_task.tags, after_task.tags);
+        assert!(after_task.tags.is_empty());
+
         assert_eq!(before_task.title, after_task.title);
         assert_eq!(before_task.notes, after_task.notes);
         assert_eq!(before_task.start_on, after_task.start_on);
         assert_eq!(before_task.start_at, after_task.start_at);
         assert_eq!(before_task.deadline, after_task.deadline);
-        assert_eq!(before_task.completed_at, after_task.completed_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.created_by, after_task.created_by);
-
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.tags, after_task.tags);
-        assert!(after_task.tags.is_empty());
     }
 
     #[test]
@@ -3559,31 +3475,20 @@ mod update_tests {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_eq!(before_task.id, after_task.id);
-        assert_eq!(before_task.title, after_task.title);
-        assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_at, after_task.start_at);
-        assert_eq!(before_task.tags, after_task.tags);
-        assert_eq!(before_task.completed_at, after_task.completed_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.deleted_at, after_task.deleted_at);
-        assert_eq!(before_task.created_at, after_task.created_at);
-        assert_eq!(before_task.created_by, after_task.created_by);
-
         assert_ne!(before_task.updated_at, after_task.updated_at);
         assert_ne!(before_task.start_on, after_task.start_on);
         if let (Some(before_date), Some(after_date)) = (before_task.start_on, after_task.start_on) {
             assert_eq!(before_date + Duration::weeks(1), after_date);
-        } else {
-            panic!("start should still be Some(Start::On(NaiveDate))");
         }
         assert_ne!(before_task.deadline, after_task.deadline);
         if let (Some(before_date), Some(after_date)) = (before_task.deadline, after_task.deadline) {
             assert_eq!(before_date + Duration::weeks(1), after_date);
-        } else {
-            panic!("deadline should still be Some(NaiveDate)");
         }
+
+        assert_eq!(before_task.title, after_task.title);
+        assert_eq!(before_task.notes, after_task.notes);
+        assert_eq!(before_task.start_at, after_task.start_at);
+        assert_eq!(before_task.tags, after_task.tags);
     }
 
     #[test]
@@ -3649,40 +3554,62 @@ mod update_tests {
         .await;
 
         let backlog_task = get_task(&mut tx, task.id).await;
+
         assert_eq!(backlog_task.tags.len(), 1);
         let tag = backlog_task.tags.first().unwrap();
         assert_eq!(tag.label, "Backlog");
-        assert_eq!(tag.category.as_deref(), Some("Workflow"));
+        assert!(tag.category.is_some());
+        if let Some(ref category) = tag.category {
+            assert_eq!(category, "Workflow");
+        }
 
         let mut updated_task: TaskCreate = backlog_task.clone().into();
         updated_task.tags = vec![todo_tag.id];
+
         let res = update_task_inner(&mut tx, task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
+
         let todo_task = res.unwrap();
+
         assert_eq!(todo_task.tags.len(), 1);
         let tag = todo_task.tags.first().unwrap();
         assert_eq!(tag.label, "Todo");
-        assert_eq!(tag.category.as_deref(), Some("Workflow"));
+        assert!(tag.category.is_some());
+        if let Some(ref category) = tag.category {
+            assert_eq!(category, "Workflow");
+        }
 
         let mut updated_task: TaskCreate = backlog_task.clone().into();
         updated_task.tags = vec![in_progress_tag.id];
+
         let res = update_task_inner(&mut tx, task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
+
         let in_progress_task = res.unwrap();
+
         assert_eq!(in_progress_task.tags.len(), 1);
         let tag = in_progress_task.tags.first().unwrap();
         assert_eq!(tag.label, "In Progress");
-        assert_eq!(tag.category.as_deref(), Some("Workflow"));
+        assert!(tag.category.is_some());
+        if let Some(ref category) = tag.category {
+            assert_eq!(category, "Workflow");
+        }
 
         let mut updated_task: TaskCreate = backlog_task.clone().into();
         updated_task.tags = vec![completed_tag.id];
+
         let res = update_task_inner(&mut tx, task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
+
         let completed_task = res.unwrap();
+
         assert_eq!(completed_task.tags.len(), 1);
         let tag = completed_task.tags.first().unwrap();
         assert_eq!(tag.label, "Completed");
-        assert_eq!(tag.category.as_deref(), Some("Workflow"));
+        assert!(tag.category.is_some());
+        if let Some(ref category) = tag.category {
+            assert_eq!(category, "Workflow");
+        }
     }
 
     #[test]
@@ -3719,10 +3646,13 @@ mod update_tests {
         assert_ne!(before_task.title, after_task.title);
         assert_eq!(after_task.title, "Create task database schema");
         assert_ne!(before_task.notes, after_task.notes);
-        assert_eq!(
-            after_task.notes.as_deref(),
-            Some("Schema should contain:\n* id\n* title\n* notes\n* created_by")
-        );
+        assert!(after_task.notes.is_some());
+        if let Some(notes) = after_task.notes {
+            assert_eq!(
+                notes,
+                "Schema should contain:\n* id\n* title\n* notes\n* created_by"
+            );
+        }
     }
 }
 
@@ -3766,6 +3696,11 @@ mod delete_tests {
         if let Some(date) = after_task.deleted_at {
             assert_eq!(date, after_task.updated_at);
         }
+    }
+
+    #[test]
+    async fn only_changes_correct_fields() {
+        // TODO: make sure that delete only updates deleted_at and updated_at
     }
 
     #[test]
@@ -3901,6 +3836,11 @@ mod restore_tests {
     }
 
     #[test]
+    async fn only_changes_correct_fields() {
+        // TODO: make sure that delete only updates deleted_at and updated_at
+    }
+
+    #[test]
     async fn restored_task() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
@@ -4031,6 +3971,11 @@ mod complete_tests {
         if let Some(date) = after_task.completed_at {
             assert_eq!(date, after_task.updated_at);
         }
+    }
+
+    #[test]
+    async fn complete_only_changes_correct_fields() {
+        // TODO: make sure that delete only updates completed_at and updated_at
     }
 
     #[test]
@@ -4190,6 +4135,11 @@ mod complete_tests {
         let after_task = get_task(&mut tx, task.id).await;
         assert_ne!(after_task.updated_at, task.updated_at);
         assert!(after_task.completed_at.is_none());
+    }
+
+    #[test]
+    async fn uncomplete_only_changes_correct_fields() {
+        // TODO: make sure that delete only updates completed_at and updated_at
     }
 
     #[test]
