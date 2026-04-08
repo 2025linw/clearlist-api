@@ -541,7 +541,7 @@ mod test_helpers {
     static POOL: OnceCell<PgPool> = OnceCell::const_new();
     pub async fn get_pool() -> &'static PgPool {
         POOL.get_or_init(|| async {
-            dotenvy::from_filename("./.env.testing").ok();
+            dotenvy::dotenv().ok();
 
             let url = env::var("MIGRATION_URL").unwrap();
             let mut conn = PgConnection::connect(&url).await.unwrap();
