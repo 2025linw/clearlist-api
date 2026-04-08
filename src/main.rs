@@ -1,7 +1,10 @@
 use std::{env, net::SocketAddr};
 
+use axum::http::{HeaderValue, Method, header};
 use sqlx::{Connection, PgConnection};
 use tokio::net::TcpListener;
+use tower::ServiceBuilder;
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
@@ -13,10 +16,18 @@ use clearlist_api::{AppState, DatabaseConn, create_app, run_migration};
 async fn main() {
     dotenvy::dotenv().ok();
 
+    // Initialize logging
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_level(true)
+        .with_target(true)
+        .init();
+
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 {
         if args.len() > 2 {
             eprintln!("{} expected 0-1 argument: 'function'", args[0]);
+
             std::process::exit(1);
         }
 
@@ -24,6 +35,7 @@ async fn main() {
             "migrate" => {
                 if env::var("MIGRATION_URL").is_err() {
                     eprintln!("MIGRATION_URL not found in environment variables");
+
                     std::process::exit(1);
                 }
 
@@ -48,13 +60,6 @@ async fn main() {
 
         std::process::exit(0);
     }
-
-    // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_level(true)
-        .with_target(false)
-        .init();
 
     // Verify all environment variables exist
     let mut missing_env = false;
@@ -90,8 +95,32 @@ async fn main() {
     // Setup app state
     let app_state = AppState::init(db_conn);
 
+    // Setup route logging
+    let trace_layer = TraceLayer::new_for_http()
+        .on_request(())
+        .on_body_chunk(())
+        .on_eos(())
+        .on_failure(());
+
+    let origins: Vec<HeaderValue> = env::var("ALLOWED_ORIGINS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|url| url.parse().unwrap())
+        .collect();
+    let headers = [
+        header::CONTENT_TYPE,
+        // header::AUTHORIZATION,
+    ];
+
+    // Setup CORS
+    let cors = CorsLayer::new()
+        .allow_credentials(true)
+        .allow_origin(origins)
+        .allow_headers(headers)
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE]);
+
     // Init app
-    let app = create_app(app_state);
+    let app = create_app(app_state).layer(ServiceBuilder::new().layer(trace_layer).layer(cors));
 
     let listener = TcpListener::bind(&format!("0.0.0.0:{}", srv_port))
         .await

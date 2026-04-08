@@ -39,27 +39,29 @@ pub fn create_rate_limiter(
         .unwrap()
 }
 
-/// Session extractor for Axum handler
+/// Session Type
 ///
 /// Used for routes that require authorization
+///
+/// Implements FromRequestParts to allow for use as extractor in handlers
+#[allow(dead_code)]
 #[derive(Debug, FromRow)]
 #[sqlx(rename_all = "camelCase")]
 pub struct Session {
-    pub id: Uuid,
-    pub token: String,
-    pub user_id: Uuid,
-    pub user_agent: Option<String>,
-    pub ip_address: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub expires_at: DateTime<Utc>,
+    id: Uuid,
+    token: String,
+    user_id: Uuid,
+    user_agent: Option<String>,
+    ip_address: Option<String>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+    expires_at: DateTime<Utc>,
 }
 
-impl std::ops::Deref for Session {
-    type Target = Uuid;
-
-    fn deref(&self) -> &Self::Target {
-        &self.user_id
+impl Session {
+    /// Gets user_id from session
+    pub fn user_id(&self) -> Uuid {
+        self.user_id
     }
 }
 
@@ -103,9 +105,11 @@ impl FromRequestParts<AppState> for Session {
     }
 }
 
-/// Session extractor for Axum handler
+/// Optional Session Type
 ///
 /// Used for routes that don't require authorization
+///
+/// Implements FromRequestParts to allow for use as extractor in handlers
 pub type OptionalSession = Option<Session>;
 
 impl FromRequestParts<AppState> for OptionalSession {

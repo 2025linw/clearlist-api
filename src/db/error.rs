@@ -5,11 +5,17 @@
 use std::error::Error as StdError;
 use std::fmt::Display;
 
+use crate::com::constants::{TAG_NOT_FOUND, TASK_NOT_FOUND};
+
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub const TASK_NOT_FOUND: &str = "Task not found";
-pub const TAG_NOT_FOUND: &str = "Tag not found";
-
+/// Unified error type for database libraries and functions
+///
+/// This enum represents the different levels in which errors can occur
+/// - `Connection`  -> Related to the connection into the database
+/// - `Pool`        -> Related to getting a connection from the pool
+/// - `Operation`   -> Related to a given database operation
+/// - `Application` -> Related to application (business) logic correctness
 #[derive(Debug)]
 pub enum Error {
     /// Database connection error
@@ -34,29 +40,6 @@ impl std::fmt::Display for Error {
 }
 
 impl StdError for Error {}
-
-#[derive(Debug)]
-pub enum ApplicationError {
-    TaskNotFound,
-    TagNotFound,
-    InvalidDateRange(String),
-    UncaughtIntegrity(String),
-    UncaughtTrigger(String),
-}
-
-impl Display for ApplicationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ApplicationError::TaskNotFound => write!(f, "{}", TASK_NOT_FOUND),
-            ApplicationError::TagNotFound => write!(f, "{}", TAG_NOT_FOUND),
-            ApplicationError::InvalidDateRange(msg) => write!(f, "Invalid date range: {}", msg),
-            ApplicationError::UncaughtIntegrity(msg) => {
-                write!(f, "Uncaught integrity error: {}", msg)
-            }
-            ApplicationError::UncaughtTrigger(msg) => write!(f, "Uncaught trigger error: {}", msg),
-        }
-    }
-}
 
 impl From<sqlx::Error> for Error {
     fn from(value: sqlx::Error) -> Self {
@@ -140,6 +123,32 @@ impl From<sqlx::Error> for Error {
             sqlx::Error::Migrate(migrate_error) => Self::Operation(migrate_error.to_string()),
 
             unknown => panic!("Found uncaught error from database: {}", unknown),
+        }
+    }
+}
+
+/// Application (Business) Error Type
+///
+/// This enum represents the different types of application (business) logic errors
+#[derive(Debug)]
+pub enum ApplicationError {
+    TaskNotFound,
+    TagNotFound,
+    InvalidDateRange(String),
+    UncaughtIntegrity(String),
+    UncaughtTrigger(String),
+}
+
+impl Display for ApplicationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ApplicationError::TaskNotFound => write!(f, "{}", TASK_NOT_FOUND),
+            ApplicationError::TagNotFound => write!(f, "{}", TAG_NOT_FOUND),
+            ApplicationError::InvalidDateRange(msg) => write!(f, "Invalid date range: {}", msg),
+            ApplicationError::UncaughtIntegrity(msg) => {
+                write!(f, "Uncaught integrity error: {}", msg)
+            }
+            ApplicationError::UncaughtTrigger(msg) => write!(f, "Uncaught trigger error: {}", msg),
         }
     }
 }

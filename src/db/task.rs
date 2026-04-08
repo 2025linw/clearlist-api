@@ -10,13 +10,14 @@ use sqlx::{PgConnection, PgPool, QueryBuilder};
 use uuid::Uuid;
 
 use super::{
-    DEFAULT_LIMIT, Error, MAX_LIMIT, Result,
+    Error, Result,
     error::ApplicationError,
     filters::{DateFilter, SQLCmp, SortOrder},
     query_as_wrapper,
     task::tag::update_task_tags_inner,
 };
 use crate::{
+    com::constants::{DEFAULT_LIMIT, MAX_LIMIT},
     models::{Tag, Task, TaskTag},
     routes::models::task::Task as TaskCreate,
 };
@@ -179,7 +180,7 @@ async fn query_tasks_inner(
 ///
 /// # Returns
 ///
-/// Task wrapped in `Some`, if task exists
+/// Task wrapped in `Some`, if exists
 ///
 /// `None`, if it does not exist
 pub async fn select_task(pool: PgPool, task_id: Uuid, user_id: Uuid) -> Result<Option<Task>> {
@@ -541,7 +542,7 @@ mod test_helpers {
     static POOL: OnceCell<PgPool> = OnceCell::const_new();
     pub async fn get_pool() -> &'static PgPool {
         POOL.get_or_init(|| async {
-            dotenvy::from_filename("./.env.testing").ok();
+            dotenvy::dotenv().ok();
 
             let url = env::var("MIGRATION_URL").unwrap();
             let mut conn = PgConnection::connect(&url).await.unwrap();
@@ -761,8 +762,8 @@ mod query_tests {
         test_helpers::{create_test_tag, create_test_task, get_pool},
     };
     use crate::{
+        com::constants::MAX_LIMIT,
         db::{
-            MAX_LIMIT,
             filters::{DateBound, DateFilter, SortOrder},
             query_as_wrapper,
         },

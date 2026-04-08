@@ -13,7 +13,6 @@ use crate::{
     routes::models::{Start, tag::Tag as TagCreate, task::Task as TaskCreate},
 };
 
-/// Conversion from Task model into user Task
 impl From<Task> for TaskCreate {
     fn from(value: Task) -> Self {
         if value.start_on.is_some() && value.start_at.is_some() {
@@ -39,7 +38,6 @@ impl From<Task> for TaskCreate {
     }
 }
 
-/// Conversion from Tag model into user Tag
 impl From<Tag> for TagCreate {
     fn from(value: Tag) -> Self {
         Self {

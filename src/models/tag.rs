@@ -5,6 +5,9 @@
 use chrono::Utc;
 use sqlx::FromRow;
 
+/// Tag Model Type
+///
+/// This is the ground truth model for tag; it exactly matches database schema
 #[allow(dead_code)]
 #[derive(Debug, FromRow)]
 #[cfg_attr(test, derive(Clone, PartialEq))]

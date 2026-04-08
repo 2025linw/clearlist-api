@@ -6,7 +6,11 @@ mod date_range;
 
 pub use date_range::{DateBound, DateFilter};
 
-// TODO: add Exists and NotExists
+/// SQL Comparison Type
+///
+/// This represents all comparison types in SQL
+///
+/// Each have a mapping to SQL equivalent string
 pub enum SQLCmp {
     Equal,
     NotEqual,
@@ -14,6 +18,8 @@ pub enum SQLCmp {
     LessThanEqual,
     GreaterThan,
     GreaterThanEqual,
+    // Exists,
+    // NotExists,
 }
 
 impl std::fmt::Display for SQLCmp {
@@ -25,10 +31,15 @@ impl std::fmt::Display for SQLCmp {
             SQLCmp::LessThanEqual => write!(f, "<="),
             SQLCmp::GreaterThan => write!(f, ">"),
             SQLCmp::GreaterThanEqual => write!(f, ">="),
+            // SQLCmp::Exists => write!(f, " IS NOT NULL"),
+            // SQLCmp::NotExists => write!(f, " IS NULL"),
         }
     }
 }
 
+/// Database Sort Order Type
+///
+/// This represents the sort orders possible for database queries
 #[derive(Default)]
 pub enum SortOrder {
     #[default]

@@ -20,13 +20,12 @@ use super::{
 };
 use crate::{
     AppState,
-    db::{
-        TAG_NOT_FOUND,
-        tag::{TagQueryOptions, delete_tag, insert_tag, query_tags, select_tag, update_tag},
-    },
+    com::constants::{DEFAULT_LIMIT, TAG_NOT_FOUND},
+    db::tag::{TagQueryOptions, delete_tag, insert_tag, query_tags, select_tag, update_tag},
     response::{Response, TagResponse},
 };
 
+/// Tag Query Handler
 pub async fn query_handler(
     session: Session,
     State(data): State<AppState>,
@@ -36,8 +35,8 @@ pub async fn query_handler(
         sort_order,
     }): Query<TagFilter>,
 ) -> Result<Response, Error> {
-    let page = i64::try_from(page).map_err(|e| Error::InvalidRequest(e.to_string()))?;
-    let limit = i64::try_from(limit).map_err(|e| Error::InvalidRequest(e.to_string()))?;
+    let page = if page < 1 { 1 } else { page };
+    let limit = if limit < 1 { DEFAULT_LIMIT } else { limit };
     let offset = (page - 1) * limit;
 
     let opts = TagQueryOptions {
@@ -46,7 +45,7 @@ pub async fn query_handler(
         sort_order: (sort_by, sort_order).into(),
     };
 
-    let tags = query_tags(data.db.pool(), session.user_id, opts)
+    let tags = query_tags(data.db.pool(), session.user_id(), opts)
         .await
         .map_err(Error::from)?;
 
@@ -56,24 +55,26 @@ pub async fn query_handler(
     })))
 }
 
+/// Tag Create Handler
 pub async fn create_handler(
     session: Session,
     State(data): State<AppState>,
     Json(body): Json<Tag>,
 ) -> Result<Response, Error> {
-    let tag = insert_tag(data.db.pool(), session.user_id, body)
+    let tag = insert_tag(data.db.pool(), session.user_id(), body)
         .await
         .map_err(Error::from)?;
 
     Ok(Response::new(StatusCode::CREATED).data(json!(TagResponse::from(tag))))
 }
 
+/// Tag Retrieve Handler
 pub async fn retrieve_handler(
     session: Session,
     State(data): State<AppState>,
     Path(tag_id): Path<Uuid>,
 ) -> Result<Response, Error> {
-    if let Some(tag) = select_tag(data.db.pool(), tag_id, session.user_id)
+    if let Some(tag) = select_tag(data.db.pool(), tag_id, session.user_id())
         .await
         .map_err(Error::from)?
     {
@@ -83,25 +84,27 @@ pub async fn retrieve_handler(
     }
 }
 
+/// Tag Update Handler
 pub async fn update_handler(
     session: Session,
     State(data): State<AppState>,
     Path(tag_id): Path<Uuid>,
     Json(body): Json<Tag>,
 ) -> Result<Response, Error> {
-    let tag = update_tag(data.db.pool(), tag_id, session.user_id, body)
+    let tag = update_tag(data.db.pool(), tag_id, session.user_id(), body)
         .await
         .map_err(Error::from)?;
 
     Ok(Response::new(StatusCode::OK).data(json!(TagResponse::from(tag))))
 }
 
+/// Tag Delete Handler
 pub async fn delete_handler(
     session: Session,
     State(data): State<AppState>,
     Path(tag_id): Path<Uuid>,
 ) -> Result<Response, Error> {
-    if let Err(err) = delete_tag(data.db.pool(), tag_id, session.user_id)
+    if let Err(err) = delete_tag(data.db.pool(), tag_id, session.user_id())
         .await
         .map_err(Error::from)
     {

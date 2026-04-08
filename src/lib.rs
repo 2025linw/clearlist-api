@@ -11,47 +11,27 @@ mod routes;
 
 pub use db::{DatabaseConn, run_migration};
 
-use std::env;
+use axum::{Router, routing::get};
 
-use axum::{
-    Router,
-    http::{HeaderValue, Method, header},
-    routing::get,
-};
-use tower::ServiceBuilder;
-use tower_http::cors::CorsLayer;
-
+/// App State Type
+///
+/// `AppState` is used for reused resources throughout web server (such as database connections, etc)
 #[derive(Clone)]
 pub struct AppState {
     db: DatabaseConn,
 }
 
 impl AppState {
+    /// Initialize an AppState with a database connection given by DatabaseConn
     pub fn init(conn: DatabaseConn) -> Self {
         Self { db: conn }
     }
 }
 
+/// Creates a new Router to be used as the app for Clear List API webserver
 pub fn create_app(app_state: AppState) -> Router {
-    let origins: Vec<HeaderValue> = env::var("ALLOWED_ORIGINS")
-        .unwrap_or_default()
-        .split(',')
-        .map(|url| url.parse().unwrap())
-        .collect();
-    let headers = [
-        header::CONTENT_TYPE,
-        // header::AUTHORIZATION,
-    ];
-
-    let cors = CorsLayer::new()
-        .allow_credentials(true)
-        .allow_origin(origins)
-        .allow_headers(headers)
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE]);
-
     Router::new()
         .route("/health", get(routes::health_check_handler))
         .nest("/api", routes::create_api_router())
         .with_state(app_state)
-        .layer(ServiceBuilder::new().layer(cors))
 }

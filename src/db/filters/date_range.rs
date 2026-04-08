@@ -6,13 +6,26 @@ use chrono::NaiveDate;
 
 use super::SQLCmp;
 
-// TODO: convert from NaiveDate to DateTime<Utc>
+/// Represents a specific start/end bound of a daterange
+///
+/// Options
+/// - Exclusive: bound that excludes the endpoint
+/// - Inclusive: bound that includes the endpoint
 #[derive(Debug, PartialEq)]
 pub enum DateBound {
+    // TODO: convert from NaiveDate to DateTime<Utc>
     Exclusive(NaiveDate),
     Inclusive(NaiveDate),
 }
 
+/// Represents filters for dates
+///
+/// Options
+/// - On: Filter exact date
+/// - NotOn: Filter not on exact date
+/// - StartRange: Filter after date
+/// - EndRange: Filter before date
+/// - Range: Filter between two dates
 #[derive(Debug, PartialEq)]
 pub enum DateFilter {
     On(NaiveDate),
