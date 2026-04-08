@@ -4,6 +4,9 @@
 //!
 //! Contains:
 //!
+//! * Constants used across project modules
 //! * Conversions between route- and database-level types
+
+pub mod constants;
 
 mod conversions;

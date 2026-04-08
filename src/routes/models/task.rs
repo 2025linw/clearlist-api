@@ -1,6 +1,6 @@
 //! # Route Task Model
 //!
-//! This module contains types used for task queries and filters
+//! This module contains types used for querying and filtering
 
 use chrono::NaiveDate;
 use serde::Deserialize;
@@ -8,7 +8,10 @@ use uuid::Uuid;
 
 use super::{DateFilter, Pagination, SortBy, SortOrder, Start};
 
-#[derive(Deserialize)]
+/// Task Request Model
+///
+/// This represents the fields a client is able to create/modify for a Task
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(Default, Clone))]
 pub struct Task {
     #[serde(default)]
@@ -16,9 +19,13 @@ pub struct Task {
     pub notes: Option<String>,
     pub start: Option<Start>,
     pub deadline: Option<NaiveDate>,
+    #[serde(default)]
     pub tags: Vec<Uuid>,
 }
 
+/// Task Filter Model
+///
+/// This represents the url parameter fields for filtering Tasks queried
 #[derive(Debug, Deserialize)]
 pub struct TaskFilter {
     #[serde(flatten)]
@@ -40,6 +47,9 @@ pub struct TaskFilter {
     pub deleted: bool,
 }
 
+/// Task Tag Query Path
+///
+/// This extracts the task_id and tag_id from the url path when calling the add and remove tag functions for Tasks
 #[derive(Debug, Deserialize)]
 pub struct TaskTagQuery {
     pub task_id: Uuid,

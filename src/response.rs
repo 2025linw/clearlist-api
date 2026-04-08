@@ -80,6 +80,11 @@ impl IntoResponse for Response {
     }
 }
 
+/// Task Response Type
+///
+/// DTO model for Task
+///
+/// This model is returned back to the user in responses that contain task(s)
 #[derive(Serialize)]
 pub struct TaskResponse {
     pub id: uuid::Uuid,
@@ -125,6 +130,11 @@ impl From<Task> for TaskResponse {
     }
 }
 
+/// Response type for Tag
+///
+/// DTO model for Tag
+///
+/// This model is returned back to the user in responses that contain tag(s)
 #[derive(Serialize)]
 pub struct TagResponse {
     pub id: uuid::Uuid,

@@ -7,6 +7,9 @@ use sqlx::FromRow;
 
 use crate::models::tag::Tag;
 
+/// Task Model Type
+///
+/// This is the ground truth model for tasks; it exactly matches database schema
 #[allow(dead_code)]
 #[derive(Debug, FromRow)]
 #[cfg_attr(test, derive(Clone, PartialEq))]
@@ -30,6 +33,11 @@ pub struct Task {
     pub created_by: uuid::Uuid,
 }
 
+/// Task Tag Type
+///
+/// This is an intermediate model for task tags returned by the database
+///
+/// This is currently only used in querying tasks
 #[derive(Debug, FromRow)]
 pub struct TaskTag {
     pub task_id: uuid::Uuid,

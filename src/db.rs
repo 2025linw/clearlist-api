@@ -8,7 +8,7 @@ pub mod task;
 
 mod error;
 
-pub use error::{ApplicationError, Error, Result, TAG_NOT_FOUND, TASK_NOT_FOUND};
+pub use error::{ApplicationError, Error, Result};
 
 use std::env;
 
@@ -22,12 +22,9 @@ use sqlx::{
 /// Maximum number of database connections in connection pool
 const MAX_CONNECTIONS: u32 = 20;
 
-/// Default limit for all `query` functions
-pub const DEFAULT_LIMIT: i64 = 50;
-/// Maximum limit for all `query` functions
-pub const MAX_LIMIT: i64 = 200;
-
-/// Wrapper around database connection pool
+/// Wrapper reusable database connection
+///
+/// This should be a connection pool to allow for concurrent use of pool by multiple handlers on threads.
 #[derive(Clone)]
 pub struct DatabaseConn {
     pool: PgPool,

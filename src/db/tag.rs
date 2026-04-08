@@ -5,10 +5,12 @@
 use sqlx::{PgConnection, PgPool, QueryBuilder};
 use uuid::Uuid;
 
-use super::{
-    ApplicationError, DEFAULT_LIMIT, Error, MAX_LIMIT, Result, filters::SortOrder, query_as_wrapper,
+use super::{ApplicationError, Error, Result, filters::SortOrder, query_as_wrapper};
+use crate::{
+    com::constants::{DEFAULT_LIMIT, MAX_LIMIT},
+    models::Tag,
+    routes::models::tag::Tag as TagCreate,
 };
-use crate::{models::Tag, routes::models::tag::Tag as TagCreate};
 
 /// Options for query tags in database
 ///

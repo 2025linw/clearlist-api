@@ -23,8 +23,8 @@ use super::{
 };
 use crate::{
     AppState,
+    com::constants::{DEFAULT_LIMIT, TASK_NOT_FOUND},
     db::{
-        TASK_NOT_FOUND,
         filters::DateFilter,
         task::{
             TaskQueryOptions, complete_task, delete_task, insert_task, query_tasks, restore_task,
@@ -34,6 +34,7 @@ use crate::{
     response::{Response, TaskResponse},
 };
 
+/// Task Query Handler
 pub async fn query_handler(
     session: Session,
     State(data): State<AppState>,
@@ -47,8 +48,8 @@ pub async fn query_handler(
         deleted,
     }): Query<TaskQuery>,
 ) -> Result<Response, Error> {
-    let page = i64::try_from(page).map_err(|e| Error::InvalidRequest(e.to_string()))?;
-    let limit = i64::try_from(limit).map_err(|e| Error::InvalidRequest(e.to_string()))?;
+    let page = if page < 1 { 1 } else { page };
+    let limit = if limit < 1 { DEFAULT_LIMIT } else { limit };
     let offset = (page - 1) * limit;
 
     let start_filter = if let Some(start) = start_date {
@@ -72,7 +73,7 @@ pub async fn query_handler(
         deadline_filter,
     };
 
-    let tasks = query_tasks(data.db.pool(), session.user_id, Some(opts))
+    let tasks = query_tasks(data.db.pool(), session.user_id(), Some(opts))
         .await
         .map_err(Error::from)?;
 
@@ -82,24 +83,26 @@ pub async fn query_handler(
     })))
 }
 
+/// Task Create Handler
 pub async fn create_handler(
     session: Session,
     State(data): State<AppState>,
     Json(body): Json<Task>,
 ) -> Result<Response, Error> {
-    let task = insert_task(data.db.pool(), session.user_id, body)
+    let task = insert_task(data.db.pool(), session.user_id(), body)
         .await
         .map_err(Error::from)?;
 
     Ok(Response::new(StatusCode::CREATED).data(json!(TaskResponse::from(task))))
 }
 
+/// Task Retrieve Handler
 pub async fn retrieve_handler(
     session: Session,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
 ) -> Result<Response, Error> {
-    if let Some(task) = select_task(data.db.pool(), task_id, session.user_id)
+    if let Some(task) = select_task(data.db.pool(), task_id, session.user_id())
         .await
         .map_err(Error::from)?
     {
@@ -109,25 +112,27 @@ pub async fn retrieve_handler(
     }
 }
 
+/// Task Update Handler
 pub async fn update_handler(
     session: Session,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
     Json(body): Json<Task>,
 ) -> Result<Response, Error> {
-    let task = update_task(data.db.pool(), task_id, session.user_id, body)
+    let task = update_task(data.db.pool(), task_id, session.user_id(), body)
         .await
         .map_err(Error::from)?;
 
     Ok(Response::new(StatusCode::OK).data(json!(TaskResponse::from(task))))
 }
 
+/// Task Delete Handler
 pub async fn delete_handler(
     session: Session,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
 ) -> Result<Response, Error> {
-    if let Err(err) = delete_task(data.db.pool(), task_id, session.user_id)
+    if let Err(err) = delete_task(data.db.pool(), task_id, session.user_id())
         .await
         .map_err(Error::from)
     {
@@ -141,25 +146,27 @@ pub async fn delete_handler(
     Ok(Response::new(StatusCode::NO_CONTENT))
 }
 
+/// Task Restore Handler
 pub async fn restore_handler(
     session: Session,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
 ) -> Result<Response, Error> {
-    restore_task(data.db.pool(), task_id, session.user_id)
+    restore_task(data.db.pool(), task_id, session.user_id())
         .await
         .map_err(Error::from)?;
 
     Ok(Response::new(StatusCode::NO_CONTENT))
 }
 
+/// Task Complete (and Uncomplete) Handler
 pub async fn complete_handler(
     session: Session,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
     Json(Completed { completed }): Json<Completed>,
 ) -> Result<Response, Error> {
-    complete_task(data.db.pool(), task_id, session.user_id, completed)
+    complete_task(data.db.pool(), task_id, session.user_id(), completed)
         .await
         .map_err(Error::from)?;
 

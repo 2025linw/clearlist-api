@@ -16,7 +16,7 @@ use crate::db::{ApplicationError, Error as DbError};
 
 /// Unified error type returned by API handlers
 ///
-/// This enum represents all errors that can be exposed to clients/
+/// This enum represents all errors that can be exposed to clients
 ///
 /// Each variant maps to an HTTP status code:
 /// - `NotFound`        -> 404 Not Found
