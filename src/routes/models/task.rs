@@ -38,10 +38,14 @@ pub struct TaskFilter {
     #[serde(rename = "order")]
     pub sort_order: SortOrder,
 
+    #[serde(alias = "start")]
     pub start_date: Option<DateFilter>,
+    #[serde(alias = "due")]
     pub deadline: Option<DateFilter>,
 
     #[serde(default)]
+    #[serde(alias = "logged")]
+    #[serde(alias = "done")]
     pub completed: bool,
     #[serde(default)]
     pub deleted: bool,
