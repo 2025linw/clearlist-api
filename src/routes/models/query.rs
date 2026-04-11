@@ -38,6 +38,8 @@ impl Default for Pagination {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum DateFilter {
+    Has(bool),
+
     Exact(NaiveDate),
 
     BracketInterval(BracketInterval),

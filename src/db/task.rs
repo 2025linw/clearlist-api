@@ -98,16 +98,20 @@ async fn query_tasks_inner(
 
         let mut separated = builder.separated(" AND ");
         for (cmp, date) in start.into_sql() {
-            separated.push(format!("((start_on {} ", cmp));
-            separated.push_bind_unseparated(date);
-            separated.push_unseparated(format!(") OR (start_at::date {} ", cmp));
-            separated.push_bind_unseparated(date);
-            separated.push_unseparated(")");
+            if matches!(cmp, SQLCmp::Exists | SQLCmp::NotExists) {
+                separated.push(format!("((start_on {0}) OR (start_at::date {0}))", cmp));
+            } else {
+                separated.push(format!("((start_on {} ", cmp));
+                separated.push_bind_unseparated(date);
+                separated.push_unseparated(format!(") OR (start_at::date {} ", cmp));
+                separated.push_bind_unseparated(date);
+                separated.push_unseparated(")");
 
-            if matches!(cmp, SQLCmp::NotEqual) {
-                separated.push_unseparated(" OR (start_on IS NULL AND start_at IS NULL)");
+                if matches!(cmp, SQLCmp::NotEqual) {
+                    separated.push_unseparated(" OR (start_on IS NULL AND start_at IS NULL)");
+                }
+                separated.push_unseparated(")");
             }
-            separated.push_unseparated(")");
         }
     }
     if let Some(deadline) = opts.deadline_filter {
@@ -115,14 +119,18 @@ async fn query_tasks_inner(
 
         let mut separated = builder.separated(" AND ");
         for (cmp, date) in deadline.into_sql() {
-            separated.push(format!("((deadline {} ", cmp));
-            separated.push_bind_unseparated(date);
-            separated.push_unseparated(")");
+            if matches!(cmp, SQLCmp::Exists | SQLCmp::NotExists) {
+                separated.push(format!("(deadline {})", cmp));
+            } else {
+                separated.push(format!("((deadline {} ", cmp));
+                separated.push_bind_unseparated(date);
+                separated.push_unseparated(")");
 
-            if matches!(cmp, SQLCmp::NotEqual) {
-                separated.push_unseparated(" OR (deadline IS NULL)");
+                if matches!(cmp, SQLCmp::NotEqual) {
+                    separated.push_unseparated(" OR (deadline IS NULL)");
+                }
+                separated.push_unseparated(")");
             }
-            separated.push_unseparated(")");
         }
     }
     builder.push(" GROUP BY id");
@@ -1475,6 +1483,45 @@ mod query_tests {
     }
 
     #[test]
+    async fn filter_has_start() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
+
+        let mut opts = create_default_opts();
+        opts.start_filter = Some(DateFilter::Exists(true));
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+        let tasks = res.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
+
+        for task in tasks {
+            // no deleted tasks
+            assert!(task.deleted_at.is_none());
+
+            assert!(task.start_on.is_some() ^ task.start_at.is_some());
+        }
+
+        let mut opts = create_default_opts();
+        opts.start_filter = Some(DateFilter::Exists(false));
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+        let tasks = res.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
+
+        for task in tasks {
+            // no deleted tasks
+            assert!(task.deleted_at.is_none());
+
+            assert!(!(task.start_on.is_some() && task.start_at.is_some()));
+        }
+    }
+
+    #[test]
     async fn filter_start_on() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
@@ -1816,6 +1863,45 @@ mod query_tests {
                     datetime.date_naive() > test_date_min && datetime.date_naive() <= test_date_max
                 )
             }
+        }
+    }
+
+    #[test]
+    async fn filter_has_deadline() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
+
+        let mut opts = create_default_opts();
+        opts.deadline_filter = Some(DateFilter::Exists(true));
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+        let tasks = res.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
+
+        for task in tasks {
+            // no deleted tasks
+            assert!(task.deleted_at.is_none());
+
+            assert!(task.deadline.is_some());
+        }
+
+        let mut opts = create_default_opts();
+        opts.deadline_filter = Some(DateFilter::Exists(false));
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+        let tasks = res.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
+
+        for task in tasks {
+            // no deleted tasks
+            assert!(task.deleted_at.is_none());
+
+            assert!(task.deadline.is_none());
         }
     }
 

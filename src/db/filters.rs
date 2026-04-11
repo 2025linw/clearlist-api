@@ -18,8 +18,8 @@ pub enum SQLCmp {
     LessThanEqual,
     GreaterThan,
     GreaterThanEqual,
-    // Exists,
-    // NotExists,
+    Exists,
+    NotExists,
 }
 
 impl std::fmt::Display for SQLCmp {
@@ -31,8 +31,8 @@ impl std::fmt::Display for SQLCmp {
             SQLCmp::LessThanEqual => write!(f, "<="),
             SQLCmp::GreaterThan => write!(f, ">"),
             SQLCmp::GreaterThanEqual => write!(f, ">="),
-            // SQLCmp::Exists => write!(f, " IS NOT NULL"),
-            // SQLCmp::NotExists => write!(f, " IS NULL"),
+            SQLCmp::Exists => write!(f, " IS NOT NULL"),
+            SQLCmp::NotExists => write!(f, " IS NULL"),
         }
     }
 }
