@@ -292,7 +292,7 @@ async fn insert_task_inner(
         insert_task
             .start
             .as_ref()
-            .map_or(false, |s| s.as_at().is_some()),
+            .is_some_and(|s| s.as_at().is_some()),
     )
     .bind(insert_task.deadline)
     .bind(user_id)
@@ -368,7 +368,7 @@ async fn update_task_inner(
         update_task
             .start
             .as_ref()
-            .map_or(false, |s| s.as_at().is_some()),
+            .is_some_and(|s| s.as_at().is_some()),
     )
     .bind(update_task.deadline)
     .fetch_optional(conn.as_mut())
@@ -634,7 +634,7 @@ mod test_helpers {
                 None => unreachable!(),
             }
         }))
-        .bind(task.start.as_ref().map_or(false, |s| s.as_at().is_some()))
+        .bind(task.start.as_ref().is_some_and(|s| s.as_at().is_some()))
         .bind(task.deadline)
         .bind(Uuid::nil())
         .bind(completed_at)
@@ -655,10 +655,11 @@ mod test_helpers {
         assert_eq!(ret_task.notes, task.notes, "notes does not match input");
         if task.start.is_some() {
             assert!(ret_task.start_dt.is_some());
-
-            match task.start.unwrap() {
-                Start::On(date) => assert_eq!(ret_task.start_dt.unwrap().date_naive(), date),
-                Start::At(date_time) => assert_eq!(ret_task.start_dt.unwrap(), date_time),
+            if let Some(dt) = task.start {
+                match dt {
+                    Start::On(date) => assert_eq!(ret_task.start_dt.unwrap().date_naive(), date),
+                    Start::At(date_time) => assert_eq!(ret_task.start_dt.unwrap(), date_time),
+                }
             }
         } else {
             assert!(ret_task.start_dt.is_none())
@@ -1678,7 +1679,7 @@ mod query_tests {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(!(task.start_dt.is_some()));
+            assert!(task.start_dt.is_none());
         }
     }
 
