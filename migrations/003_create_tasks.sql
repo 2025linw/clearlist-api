@@ -1,11 +1,10 @@
 CREATE TABLE app.tasks (
-    id UUID PRIMARY KEY DEFAULT app.gen_random_uuid(),
+    id uuid PRIMARY KEY DEFAULT app.gen_random_uuid(),
 
     title varchar(255) NOT NULL,
     notes text,
-    -- TODO: create trigger to limit only start_date OR start_at
-    start_on date,
-    start_at timestamp with time zone,
+    start_dt timestamp with time zone,
+    has_time bool NOT NULL DEFAULT false,
     deadline date,
 
     completed_at timestamp with time zone,

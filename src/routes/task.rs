@@ -17,7 +17,7 @@ use super::{
     Error,
     models::{
         Completed, Pagination,
-        task::{Task, TaskFilter as TaskQuery, TaskTagQuery},
+        task::{Filter, Model},
     },
     util::Session,
 };
@@ -38,7 +38,7 @@ use crate::{
 pub async fn query_handler(
     session: Session,
     State(data): State<AppState>,
-    Query(TaskQuery {
+    Query(Filter {
         pagination: Pagination { page, limit },
         sort_by,
         sort_order,
@@ -46,7 +46,7 @@ pub async fn query_handler(
         deadline,
         completed,
         deleted,
-    }): Query<TaskQuery>,
+    }): Query<Filter>,
 ) -> Result<Response, Error> {
     let page = if page < 1 { 1 } else { page };
     let limit = if limit < 1 { DEFAULT_LIMIT } else { limit };
@@ -87,7 +87,7 @@ pub async fn query_handler(
 pub async fn create_handler(
     session: Session,
     State(data): State<AppState>,
-    Json(body): Json<Task>,
+    Json(body): Json<Model>,
 ) -> Result<Response, Error> {
     let task = insert_task(data.db.pool(), session.user_id(), body)
         .await
@@ -117,7 +117,7 @@ pub async fn update_handler(
     session: Session,
     State(data): State<AppState>,
     Path(task_id): Path<Uuid>,
-    Json(body): Json<Task>,
+    Json(body): Json<Model>,
 ) -> Result<Response, Error> {
     let task = update_task(data.db.pool(), task_id, session.user_id(), body)
         .await

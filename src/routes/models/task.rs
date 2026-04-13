@@ -6,14 +6,14 @@ use chrono::NaiveDate;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use super::{DateFilter, Pagination, SortBy, SortOrder, Start};
+use super::{DateFilter, Pagination, SortOrder, Start};
 
 /// Task Request Model
 ///
 /// This represents the fields a client is able to create/modify for a Task
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(Default, Clone))]
-pub struct Task {
+pub struct Model {
     #[serde(default)]
     pub title: String,
     pub notes: Option<String>,
@@ -27,7 +27,7 @@ pub struct Task {
 ///
 /// This represents the url parameter fields for filtering Tasks queried
 #[derive(Debug, Deserialize)]
-pub struct TaskFilter {
+pub struct Filter {
     #[serde(flatten)]
     pub pagination: Pagination,
 
@@ -51,11 +51,16 @@ pub struct TaskFilter {
     pub deleted: bool,
 }
 
-/// Task Tag Query Path
+/// Task Sort Type
 ///
-/// This extracts the task_id and tag_id from the url path when calling the add and remove tag functions for Tasks
-#[derive(Debug, Deserialize)]
-pub struct TaskTagQuery {
-    pub task_id: Uuid,
-    pub tag_id: Uuid,
+/// This represents all the values that it is possible to sort Tasks by
+#[derive(Debug, Default, Deserialize)]
+pub enum SortBy {
+    Created,
+    #[default]
+    Updated,
+    Title,
+    Start,
+    #[serde(alias = "due")]
+    Deadline,
 }

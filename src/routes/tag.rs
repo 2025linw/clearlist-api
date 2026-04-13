@@ -14,7 +14,7 @@ use super::{
     Error,
     models::{
         Pagination,
-        tag::{Tag, TagFilter},
+        tag::{Filter, Model},
     },
     util::Session,
 };
@@ -29,11 +29,11 @@ use crate::{
 pub async fn query_handler(
     session: Session,
     State(data): State<AppState>,
-    Query(TagFilter {
+    Query(Filter {
         pagination: Pagination { page, limit },
         sort_by,
         sort_order,
-    }): Query<TagFilter>,
+    }): Query<Filter>,
 ) -> Result<Response, Error> {
     let page = if page < 1 { 1 } else { page };
     let limit = if limit < 1 { DEFAULT_LIMIT } else { limit };
@@ -59,7 +59,7 @@ pub async fn query_handler(
 pub async fn create_handler(
     session: Session,
     State(data): State<AppState>,
-    Json(body): Json<Tag>,
+    Json(body): Json<Model>,
 ) -> Result<Response, Error> {
     let tag = insert_tag(data.db.pool(), session.user_id(), body)
         .await
@@ -89,7 +89,7 @@ pub async fn update_handler(
     session: Session,
     State(data): State<AppState>,
     Path(tag_id): Path<Uuid>,
-    Json(body): Json<Tag>,
+    Json(body): Json<Model>,
 ) -> Result<Response, Error> {
     let tag = update_tag(data.db.pool(), tag_id, session.user_id(), body)
         .await

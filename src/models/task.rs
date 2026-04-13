@@ -18,8 +18,8 @@ pub struct Task {
 
     pub title: String,
     pub notes: Option<String>,
-    pub start_on: Option<chrono::NaiveDate>,
-    pub start_at: Option<chrono::DateTime<Utc>>,
+    pub start_dt: Option<chrono::DateTime<Utc>>,
+    pub has_time: bool,
     pub deadline: Option<chrono::NaiveDate>,
     #[sqlx(skip)]
     pub tags: Vec<Tag>,

@@ -3,8 +3,10 @@
 //! This module contains types and functions used for database filters
 
 mod date_range;
+mod sort;
 
 pub use date_range::{DateBound, DateFilter};
+pub use sort::{TagSort, TaskSort};
 
 /// SQL Comparison Type
 ///
@@ -35,16 +37,4 @@ impl std::fmt::Display for SQLCmp {
             SQLCmp::NotExists => write!(f, " IS NULL"),
         }
     }
-}
-
-/// Database Sort Order Type
-///
-/// This represents the sort orders possible for database queries
-#[derive(Default)]
-pub enum SortOrder {
-    #[default]
-    UpdatedDesc,
-    UpdatedAsc,
-    CreatedDesc,
-    CreatedAsc,
 }

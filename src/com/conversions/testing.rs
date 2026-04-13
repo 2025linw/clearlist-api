@@ -10,22 +10,19 @@
 
 use crate::{
     models::{Tag, Task},
-    routes::models::{Start, tag::Tag as TagCreate, task::Task as TaskCreate},
+    routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate},
 };
 
 impl From<Task> for TaskCreate {
     fn from(value: Task) -> Self {
-        if value.start_on.is_some() && value.start_at.is_some() {
-            // TODO: no panic
-            panic!("have both start_on and start_at");
-        }
-
-        let start = if let Some(date) = value.start_on {
-            use crate::routes::models::Start;
-
-            Some(Start::On(date))
+        let start = if let Some(dt) = value.start_dt {
+            if value.has_time {
+                Some(Start::At(dt))
+            } else {
+                Some(Start::On(dt.date_naive()))
+            }
         } else {
-            value.start_at.map(Start::At)
+            None
         };
 
         Self {

@@ -7,7 +7,7 @@ pub mod task;
 
 mod query;
 
-pub use query::{BracketInterval, Completed, DateFilter, Pagination, SortBy, SortOrder};
+pub use query::{BracketInterval, Completed, DateFilter, Pagination, SortOrder};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};

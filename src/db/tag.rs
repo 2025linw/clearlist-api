@@ -5,11 +5,11 @@
 use sqlx::{PgConnection, PgPool, QueryBuilder};
 use uuid::Uuid;
 
-use super::{ApplicationError, Error, Result, filters::SortOrder, query_as_wrapper};
+use super::{ApplicationError, Error, Result, filters::TagSort, query_as_wrapper};
 use crate::{
     com::constants::{DEFAULT_LIMIT, MAX_LIMIT},
     models::Tag,
-    routes::models::tag::Tag as TagCreate,
+    routes::models::{SortOrder, tag::Model as TagCreate},
 };
 
 /// Options for query tags in database
@@ -18,13 +18,13 @@ use crate::{
 ///
 /// * `limit`: limits number of tags to return (default: 50)
 /// * `offset`: number of tags to skip (default: 0)
-/// * `sort_order`: order to return tags (default: decreasing by updated_at)
+/// * `sort_order`: order to return tags (default: recently updated first (updated decreasing))
 #[derive(Default)]
 pub struct TagQueryOptions {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 
-    pub sort_order: SortOrder,
+    pub sort_order: TagSort,
 }
 
 /// Query database for tags
@@ -60,10 +60,12 @@ async fn query_tags_inner(
     let mut builder = QueryBuilder::new("SELECT * FROM app.tags WHERE created_by = ");
     builder.push_bind(user_id);
     match opts.sort_order {
-        SortOrder::UpdatedDesc => builder.push(" ORDER BY updated_at DESC"),
-        SortOrder::UpdatedAsc => builder.push(" ORDER BY updated_at ASC"),
-        SortOrder::CreatedDesc => builder.push(" ORDER BY created_at DESC"),
-        SortOrder::CreatedAsc => builder.push(" ORDER BY created_at ASC"),
+        TagSort::Updated(SortOrder::Descending) => builder.push(" ORDER BY updated_at DESC"),
+        TagSort::Updated(SortOrder::Ascending) => builder.push(" ORDER BY updated_at ASC"),
+        TagSort::Created(SortOrder::Descending) => builder.push(" ORDER BY created_at DESC"),
+        TagSort::Created(SortOrder::Ascending) => builder.push(" ORDER BY created_at ASC"),
+        TagSort::Label(SortOrder::Ascending) => builder.push(" ORDER BY label ASC"),
+        TagSort::Label(SortOrder::Descending) => builder.push(" ORDER BY label DESC"),
     };
     builder.push(" LIMIT ");
     builder.push_bind(limit);

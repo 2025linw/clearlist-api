@@ -104,15 +104,14 @@ pub struct TaskResponse {
 
 impl From<Task> for TaskResponse {
     fn from(value: Task) -> Self {
-        if value.start_on.is_some() && value.start_at.is_some() {
-            // TODO: no panic
-            panic!("have both start_on and start_at");
-        }
-
-        let start = if let Some(date) = value.start_on {
-            Some(Start::On(date))
+        let start = if let Some(dt) = value.start_dt {
+            if value.has_time {
+                Some(Start::At(dt))
+            } else {
+                Some(Start::On(dt.date_naive()))
+            }
         } else {
-            value.start_at.map(Start::At)
+            None
         };
 
         Self {
