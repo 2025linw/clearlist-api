@@ -24,6 +24,7 @@ use crate::db::{ApplicationError, Error as DbError};
 /// - `InternalServer`  -> 500 Internal Server Error
 #[derive(Debug)]
 pub enum Error {
+    NotAuthorized,
     NotFound(String),
     InvalidRequest(String),
     InternalServer(String),
@@ -32,6 +33,7 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Error::NotAuthorized => write!(f, "Not authenticated"),
             Error::NotFound(msg) => write!(f, "{}", msg),
             Error::InvalidRequest(msg) => write!(f, "Invalid request: {}", msg),
             Error::InternalServer(msg) => write!(f, "Internal server error: {}", msg),
@@ -60,6 +62,12 @@ impl From<DbError> for Error {
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         match self {
+            Error::NotAuthorized => (
+                StatusCode::UNAUTHORIZED,
+                Json::from(json!({
+                    "message": self.to_string(),
+                })),
+            ),
             Error::NotFound(msg) => (
                 StatusCode::NOT_FOUND,
                 Json::from(json!({
