@@ -15,6 +15,7 @@ impl TryFrom<DateFilterQuery> for DateFilterDB {
 
     fn try_from(value: DateFilterQuery) -> Result<Self, Error> {
         match value {
+            DateFilterQuery::Has(bool) => Ok(Self::Exists(bool)),
             DateFilterQuery::Exact(date) => Ok(Self::On(date)),
             DateFilterQuery::BracketInterval(interval) => match interval {
                 BracketInterval {
@@ -98,7 +99,7 @@ impl TryFrom<DateFilterQuery> for DateFilterDB {
                             || interval.lte.is_some()
                             || interval.gt.is_some()
                             || interval.gte.is_some());
-                    let greater = interval.gt.is_some() && interval.gt.is_some();
+                    let greater = interval.gt.is_some() && interval.gte.is_some();
                     let less = interval.lt.is_some() && interval.lte.is_some();
 
                     if ne {
@@ -109,13 +110,13 @@ impl TryFrom<DateFilterQuery> for DateFilterDB {
                         Err(Error::Application(ApplicationError::InvalidDateRange(
                             "use only one of '<' or '<=' and one of '>' or '>='".to_string(),
                         )))
-                    } else if greater {
+                    } else if less {
                         Err(Error::Application(ApplicationError::InvalidDateRange(
-                            "use only one of '>' or '>='".to_string(),
+                            "use only one of '<' or '<='".to_string(),
                         )))
                     } else {
                         Err(Error::Application(ApplicationError::InvalidDateRange(
-                            "use only one of '<' or '<='".to_string(),
+                            "use only one of '>' or '>='".to_string(),
                         )))
                     }
                 }

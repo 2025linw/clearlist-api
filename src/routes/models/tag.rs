@@ -4,14 +4,14 @@
 
 use serde::Deserialize;
 
-use super::{Pagination, SortBy, SortOrder};
+use super::{Pagination, SortOrder};
 
 /// Tag Request Model
 ///
 /// This represents the fields a client is able to create/modify for a Tag
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(Default, Clone))]
-pub struct Tag {
+pub struct Model {
     #[serde(default)]
     pub label: String,
     pub category: Option<String>,
@@ -21,7 +21,7 @@ pub struct Tag {
 ///
 /// This represents the url parameter fields for filtering Tags queried
 #[derive(Debug, Deserialize)]
-pub struct TagFilter {
+pub struct Filter {
     #[serde(flatten)]
     pub pagination: Pagination,
 
@@ -31,4 +31,15 @@ pub struct TagFilter {
     #[serde(default)]
     #[serde(rename = "order")]
     pub sort_order: SortOrder,
+}
+
+/// Tag Sort Type
+///
+/// This represents all the fields that it is possible to sort Tags by
+#[derive(Debug, Default, Deserialize)]
+pub enum SortBy {
+    Created,
+    #[default]
+    Updated,
+    Label,
 }

@@ -15,7 +15,6 @@ use crate::{
     AppState,
     db::task::tag,
     response::{Response, TagResponse},
-    routes::task::TaskTagQuery,
 };
 
 /// Task Tags Query Handler
@@ -38,7 +37,7 @@ pub async fn query_handler(
 pub async fn create_handler(
     session: Session,
     State(data): State<AppState>,
-    Path(TaskTagQuery { task_id, tag_id }): Path<TaskTagQuery>,
+    Path((task_id, tag_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Response, Error> {
     tag::insert_task_tag(data.db.pool(), task_id, session.user_id(), tag_id)
         .await
@@ -65,7 +64,7 @@ pub async fn update_handler(
 pub async fn delete_handler(
     session: Session,
     State(data): State<AppState>,
-    Path(TaskTagQuery { task_id, tag_id }): Path<TaskTagQuery>,
+    Path((task_id, tag_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Response, Error> {
     tag::delete_task_tag(data.db.pool(), task_id, session.user_id(), tag_id)
         .await

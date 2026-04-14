@@ -28,6 +28,7 @@ pub enum DateBound {
 /// - Range: Filter between two dates
 #[derive(Debug, PartialEq)]
 pub enum DateFilter {
+    Exists(bool),
     On(NaiveDate),
     NotOn(NaiveDate),
     StartRange(DateBound),
@@ -38,6 +39,13 @@ pub enum DateFilter {
 impl DateFilter {
     pub fn into_sql(self) -> Vec<(SQLCmp, NaiveDate)> {
         match self {
+            DateFilter::Exists(has) => {
+                if has {
+                    vec![(SQLCmp::Exists, NaiveDate::MIN)]
+                } else {
+                    vec![(SQLCmp::NotExists, NaiveDate::MIN)]
+                }
+            }
             DateFilter::On(date) => vec![(SQLCmp::Equal, date)],
             DateFilter::NotOn(date) => vec![(SQLCmp::NotEqual, date)],
             DateFilter::StartRange(bound) => match bound {

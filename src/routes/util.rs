@@ -15,7 +15,7 @@ use tower_governor::{
 };
 use uuid::Uuid;
 
-use crate::AppState;
+use crate::{AppState, routes::Error};
 
 /// Key for cookie holding authorization session token
 static COOKIE_KEY: LazyLock<String> =
@@ -66,7 +66,7 @@ impl Session {
 }
 
 impl FromRequestParts<AppState> for Session {
-    type Rejection = (StatusCode, &'static str);
+    type Rejection = Error;
 
     async fn from_request_parts(
         parts: &mut axum::http::request::Parts,
@@ -74,7 +74,7 @@ impl FromRequestParts<AppState> for Session {
     ) -> Result<Self, Self::Rejection> {
         let cookies = CookieJar::from_headers(&parts.headers);
         if cookies.get(&COOKIE_KEY).is_none() {
-            return Err((StatusCode::UNAUTHORIZED, "not authorized"));
+            return Err(Error::NotAuthorized);
         }
 
         let session_id = cookies
@@ -93,12 +93,12 @@ impl FromRequestParts<AppState> for Session {
         .fetch_one(&conn)
         .await
         {
-            Err(_) => return Err((StatusCode::UNAUTHORIZED, "session has expired")),
+            Err(_) => return Err(Error::NotAuthorized),
             Ok(session) => session,
         };
 
         if session.expires_at < Utc::now() {
-            return Err((StatusCode::UNAUTHORIZED, "session has expired"));
+            return Err(Error::NotAuthorized);
         }
 
         Ok(session)

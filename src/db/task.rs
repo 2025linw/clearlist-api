@@ -12,14 +12,14 @@ use uuid::Uuid;
 use super::{
     Error, Result,
     error::ApplicationError,
-    filters::{DateFilter, SQLCmp, SortOrder},
+    filters::{DateFilter, SQLCmp, TaskSort},
     query_as_wrapper,
     task::tag::update_task_tags_inner,
 };
 use crate::{
     com::constants::{DEFAULT_LIMIT, MAX_LIMIT},
     models::{Tag, Task, TaskTag},
-    routes::models::task::Task as TaskCreate,
+    routes::models::{SortOrder, task::Model as TaskCreate},
 };
 
 /// Options for querying tasks in database
@@ -28,7 +28,7 @@ use crate::{
 ///
 /// * `limit`: limits number of tasks to return (default: 50)
 /// * `offset`: number of tasks to skip (default: 0)
-/// * `sort_order`: order to return tasks (default: decreasing by updated_at)
+/// * `sort_order`: order to return tasks (default: recently updated first (updated decreasing))
 /// * `completed`: filter by completion status (default: false)
 /// * `deleted`: filter by deletion status (default: false)
 /// * `start_filter`: filter by start date range
@@ -38,7 +38,7 @@ pub struct TaskQueryOptions {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 
-    pub sort_order: SortOrder,
+    pub sort_order: TaskSort,
 
     pub completed: bool,
     pub deleted: bool,
@@ -98,16 +98,18 @@ async fn query_tasks_inner(
 
         let mut separated = builder.separated(" AND ");
         for (cmp, date) in start.into_sql() {
-            separated.push(format!("((start_on {} ", cmp));
-            separated.push_bind_unseparated(date);
-            separated.push_unseparated(format!(") OR (start_at::date {} ", cmp));
-            separated.push_bind_unseparated(date);
-            separated.push_unseparated(")");
+            if matches!(cmp, SQLCmp::Exists | SQLCmp::NotExists) {
+                separated.push(format!("start_dt {}", cmp));
+            } else {
+                separated.push(format!("((start_dt::date {} ", cmp));
+                separated.push_bind_unseparated(date);
+                separated.push_unseparated(")");
 
-            if matches!(cmp, SQLCmp::NotEqual) {
-                separated.push_unseparated(" OR (start_on IS NULL AND start_at IS NULL)");
+                if matches!(cmp, SQLCmp::NotEqual) {
+                    separated.push_unseparated(" OR (start_dt IS NULL)");
+                }
+                separated.push_unseparated(")");
             }
-            separated.push_unseparated(")");
         }
     }
     if let Some(deadline) = opts.deadline_filter {
@@ -115,22 +117,38 @@ async fn query_tasks_inner(
 
         let mut separated = builder.separated(" AND ");
         for (cmp, date) in deadline.into_sql() {
-            separated.push(format!("((deadline {} ", cmp));
-            separated.push_bind_unseparated(date);
-            separated.push_unseparated(")");
+            if matches!(cmp, SQLCmp::Exists | SQLCmp::NotExists) {
+                separated.push(format!("(deadline {})", cmp));
+            } else {
+                separated.push(format!("((deadline {} ", cmp));
+                separated.push_bind_unseparated(date);
+                separated.push_unseparated(")");
 
-            if matches!(cmp, SQLCmp::NotEqual) {
-                separated.push_unseparated(" OR (deadline IS NULL)");
+                if matches!(cmp, SQLCmp::NotEqual) {
+                    separated.push_unseparated(" OR (deadline IS NULL)");
+                }
+                separated.push_unseparated(")");
             }
-            separated.push_unseparated(")");
         }
     }
     builder.push(" GROUP BY id");
     match opts.sort_order {
-        SortOrder::UpdatedDesc => builder.push(" ORDER BY updated_at DESC"),
-        SortOrder::UpdatedAsc => builder.push(" ORDER BY updated_at ASC"),
-        SortOrder::CreatedDesc => builder.push(" ORDER BY created_at DESC"),
-        SortOrder::CreatedAsc => builder.push(" ORDER BY created_at ASC"),
+        TaskSort::Updated(SortOrder::Descending) => builder.push(" ORDER BY updated_at DESC"),
+        TaskSort::Updated(SortOrder::Ascending) => builder.push(" ORDER BY updated_at ASC"),
+        TaskSort::Created(SortOrder::Descending) => builder.push(" ORDER BY created_at DESC"),
+        TaskSort::Created(SortOrder::Ascending) => builder.push(" ORDER BY created_at ASC"),
+        TaskSort::Title(SortOrder::Ascending) => builder.push(" ORDER BY title ASC"),
+        TaskSort::Title(SortOrder::Descending) => builder.push(" ORDER BY title DESC"),
+        TaskSort::Start(SortOrder::Ascending) => builder.push(" ORDER BY start_dt ASC NULLS LAST"),
+        TaskSort::Start(SortOrder::Descending) => {
+            builder.push(" ORDER BY start_dt DESC NULLS LAST")
+        }
+        TaskSort::Deadline(SortOrder::Ascending) => {
+            builder.push(" ORDER BY deadline ASC NULLS LAST")
+        }
+        TaskSort::Deadline(SortOrder::Descending) => {
+            builder.push(" ORDER BY deadline DESC NULLS LAST")
+        }
     };
     builder.push(" LIMIT ");
     builder.push_bind(limit);
@@ -257,14 +275,25 @@ async fn insert_task_inner(
     insert_task: TaskCreate,
 ) -> Result<Task> {
     let mut task_row = query_as_wrapper::<Task>(
-        "INSERT INTO app.tasks (title, notes, start_on, start_at, deadline, created_by)
+        "INSERT INTO app.tasks (title, notes, start_dt, has_time, deadline, created_by)
         VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING *",
     )
     .bind(insert_task.title)
     .bind(insert_task.notes)
-    .bind(insert_task.start.as_ref().and_then(|s| s.as_on()))
-    .bind(insert_task.start.as_ref().and_then(|s| s.as_at()))
+    .bind(insert_task.start.as_ref().and_then(|s| match s.as_at() {
+        Some(dt) => Some(dt),
+        None => match s.as_on() {
+            Some(d) => Some(d.and_hms_opt(0, 0, 0).unwrap().and_utc()),
+            None => unreachable!(),
+        },
+    }))
+    .bind(
+        insert_task
+            .start
+            .as_ref()
+            .is_some_and(|s| s.as_at().is_some()),
+    )
     .bind(insert_task.deadline)
     .bind(user_id)
     .fetch_one(conn.as_mut())
@@ -319,7 +348,7 @@ async fn update_task_inner(
     // TOOD: make this truly idempotent, don't update if no actual change is made
     let task_opt = query_as_wrapper::<Task>(
         "UPDATE app.tasks SET
-        (updated_at, title, notes, start_on, start_at, deadline) =
+        (updated_at, title, notes, start_dt, has_time, deadline) =
         (CURRENT_TIMESTAMP, $3, $4, $5, $6, $7)
         WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL
         RETURNING *",
@@ -328,8 +357,19 @@ async fn update_task_inner(
     .bind(user_id)
     .bind(update_task.title)
     .bind(update_task.notes)
-    .bind(update_task.start.clone().and_then(|s| s.as_on()))
-    .bind(update_task.start.clone().and_then(|s| s.as_at()))
+    .bind(update_task.start.as_ref().and_then(|s| match s.as_at() {
+        Some(dt) => Some(dt),
+        None => match s.as_on() {
+            Some(d) => Some(d.and_hms_opt(0, 0, 0).unwrap().and_utc()),
+            None => unreachable!(),
+        },
+    }))
+    .bind(
+        update_task
+            .start
+            .as_ref()
+            .is_some_and(|s| s.as_at().is_some()),
+    )
     .bind(update_task.deadline)
     .fetch_optional(conn.as_mut())
     .await?;
@@ -533,7 +573,7 @@ mod test_helpers {
     use crate::{
         db::{query_as_wrapper, task::update_task_tags_inner},
         models::{Tag, Task},
-        routes::models::{tag::Tag as TagCreate, task::Task as TaskCreate},
+        routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate},
         run_migration,
     };
 
@@ -582,13 +622,19 @@ mod test_helpers {
         updated_at: DateTime<Utc>,
     ) -> Task {
         let task_id = sqlx::query_scalar(
-            "INSERT INTO app.tasks (title, notes, start_on, start_at, deadline, created_by, completed_at, deleted_at, created_at, updated_at)
+            "INSERT INTO app.tasks (title, notes, start_dt, has_time, deadline, created_by, completed_at, deleted_at, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
         )
         .bind(task.title.clone())
         .bind(task.notes.clone())
-        .bind(task.start.as_ref().and_then(|s| s.as_on()))
-        .bind(task.start.as_ref().and_then(|s| s.as_at()))
+        .bind(task.start.as_ref().and_then(|s| match s.as_at() {
+            Some(dt) => Some(dt),
+            None => match s.as_on() {
+                Some(d) => Some(d.and_hms_opt(0, 0, 0).unwrap().and_utc()),
+                None => unreachable!(),
+            }
+        }))
+        .bind(task.start.as_ref().is_some_and(|s| s.as_at().is_some()))
         .bind(task.deadline)
         .bind(Uuid::nil())
         .bind(completed_at)
@@ -607,16 +653,17 @@ mod test_helpers {
         let ret_task = get_task(conn, task_id).await;
         assert_eq!(ret_task.title, task.title, "title does not match input");
         assert_eq!(ret_task.notes, task.notes, "notes does not match input");
-        assert_eq!(
-            ret_task.start_on,
-            task.start.clone().and_then(|date| date.as_on()),
-            "start does not match input"
-        );
-        assert_eq!(
-            ret_task.start_at,
-            task.start.and_then(|date| date.as_at()),
-            "start does not match input"
-        );
+        if task.start.is_some() {
+            assert!(ret_task.start_dt.is_some());
+            if let Some(dt) = task.start {
+                match dt {
+                    Start::On(date) => assert_eq!(ret_task.start_dt.unwrap().date_naive(), date),
+                    Start::At(date_time) => assert_eq!(ret_task.start_dt.unwrap(), date_time),
+                }
+            }
+        } else {
+            assert!(ret_task.start_dt.is_none())
+        }
         assert_eq!(
             ret_task.deadline, task.deadline,
             "deadline does not match input"
@@ -764,11 +811,11 @@ mod query_tests {
     use crate::{
         com::constants::MAX_LIMIT,
         db::{
-            filters::{DateBound, DateFilter, SortOrder},
+            filters::{DateBound, DateFilter, TaskSort},
             query_as_wrapper,
         },
         models::{Tag, Task},
-        routes::models::{Start, tag::Tag as TagCreate, task::Task as TaskCreate},
+        routes::models::{SortOrder, Start, tag::Model as TagCreate, task::Model as TaskCreate},
     };
 
     const DATE_YEAR: i32 = 2027;
@@ -780,7 +827,7 @@ mod query_tests {
         TaskQueryOptions {
             limit: None,
             offset: None,
-            sort_order: SortOrder::default(),
+            sort_order: TaskSort::default(),
             completed: false,
             deleted: false,
             start_filter: None,
@@ -1141,7 +1188,7 @@ mod query_tests {
     }
 
     #[test]
-    async fn updated_by_ascending() {
+    async fn updated_ascending() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
@@ -1149,23 +1196,18 @@ mod query_tests {
         create_test_data(&mut tx).await;
 
         let mut opts = create_default_opts();
-        opts.sort_order = SortOrder::UpdatedAsc;
+        opts.sort_order = TaskSort::Updated(SortOrder::Ascending);
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
         let tasks = res.unwrap();
 
-        // default sort is updated_at descending
+        // ensure tasks is sorted by updated_at ascending
         assert!(tasks.is_sorted_by(|a, b| a.updated_at <= b.updated_at));
-
-        for task in tasks {
-            // no deleted tasks
-            assert!(task.deleted_at.is_none());
-        }
     }
 
     #[test]
-    async fn created_by_descending() {
+    async fn created_descending() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
@@ -1173,23 +1215,18 @@ mod query_tests {
         create_test_data(&mut tx).await;
 
         let mut opts = create_default_opts();
-        opts.sort_order = SortOrder::CreatedDesc;
+        opts.sort_order = TaskSort::Created(SortOrder::Descending);
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
         let tasks = res.unwrap();
 
-        // default sort is updated_at descending
+        // ensure tasks is sorted by created_at descending
         assert!(tasks.is_sorted_by(|a, b| a.created_at >= b.created_at));
-
-        for task in tasks {
-            // no deleted tasks
-            assert!(task.deleted_at.is_none());
-        }
     }
 
     #[test]
-    async fn created_by_ascending() {
+    async fn created_ascending() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
@@ -1197,19 +1234,156 @@ mod query_tests {
         create_test_data(&mut tx).await;
 
         let mut opts = create_default_opts();
-        opts.sort_order = SortOrder::CreatedAsc;
+        opts.sort_order = TaskSort::Created(SortOrder::Ascending);
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
         let tasks = res.unwrap();
 
-        // default sort is updated_at descending
+        // ensure tasks is sorted by created_at ascending
         assert!(tasks.is_sorted_by(|a, b| a.created_at <= b.created_at));
+    }
 
-        for task in tasks {
-            // no deleted tasks
-            assert!(task.deleted_at.is_none());
-        }
+    #[test]
+    async fn title_ascending() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
+
+        let mut opts = create_default_opts();
+        opts.sort_order = TaskSort::Title(SortOrder::Ascending);
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+        let tasks = res.unwrap();
+
+        // ensure tasks is sorted by title ascending
+        assert!(tasks.is_sorted_by(|a, b| a.title <= b.title));
+    }
+
+    #[test]
+    async fn title_descending() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
+
+        let mut opts = create_default_opts();
+        opts.sort_order = TaskSort::Title(SortOrder::Descending);
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+        let tasks = res.unwrap();
+
+        // ensure tasks is sorted by title descending
+        assert!(tasks.is_sorted_by(|a, b| a.title >= b.title));
+    }
+
+    #[test]
+    async fn start_ascending() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
+
+        let mut opts = create_default_opts();
+        opts.sort_order = TaskSort::Start(SortOrder::Ascending);
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+        let tasks = res.unwrap();
+
+        // ensure tasks is sorted by start ascending
+        let mut seen_nulls = false;
+        assert!(tasks.is_sorted_by(|a, b| {
+            if a.start_dt.is_some() && b.start_dt.is_none() {
+                // if encountering first transition from values to NULL
+                seen_nulls = true;
+
+                return true;
+            }
+            if seen_nulls && (a.start_dt.is_some() || b.start_dt.is_some()) {
+                // if we are in the NULL section, we should not see anymore dates that are not NULL
+                panic!("found dates within NULL section of sorted tasks")
+            }
+
+            a.start_dt <= b.start_dt
+        }));
+    }
+
+    #[test]
+    async fn start_descending() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
+
+        let mut opts = create_default_opts();
+        opts.sort_order = TaskSort::Title(SortOrder::Descending);
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+        let tasks = res.unwrap();
+
+        // ensure tasks is sorted by start descending
+        assert!(tasks.is_sorted_by(|a, b| a.title >= b.title));
+    }
+
+    #[test]
+    async fn deadline_ascending() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
+
+        let mut opts = create_default_opts();
+        opts.sort_order = TaskSort::Deadline(SortOrder::Ascending);
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+        let tasks = res.unwrap();
+
+        // ensure tasks is sorted by deadline ascending
+        let mut seen_nulls = false;
+        assert!(tasks.is_sorted_by(|a, b| {
+            if a.deadline.is_some() && b.deadline.is_none() {
+                // if encountering first transition from values to NULL
+                seen_nulls = true;
+
+                return true;
+            }
+            if seen_nulls && (a.deadline.is_some() || b.deadline.is_some()) {
+                // if we are in the NULL section, we should not see anymore dates that are not NULL
+                panic!("found dates within NULL section of sorted tasks")
+            }
+
+            a.deadline <= b.deadline
+        }));
+    }
+
+    #[test]
+    async fn deadline_descending() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
+
+        let mut opts = create_default_opts();
+        opts.sort_order = TaskSort::Deadline(SortOrder::Descending);
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+        let tasks = res.unwrap();
+
+        // ensure tasks is sorted by deadline descending
+        assert!(tasks.is_sorted_by(|a, b| a.deadline >= b.deadline));
     }
 
     #[test]
@@ -1220,18 +1394,14 @@ mod query_tests {
         // create data
         create_test_data(&mut tx).await;
 
-        for i in 1..=10 {
+        for i in 1..=20 {
             let mut opts = create_default_opts();
             opts.limit = Some(i);
 
             let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
             assert!(res.is_ok());
             let tasks = res.unwrap();
-
-            for task in tasks {
-                // no deleted tasks
-                assert!(task.deleted_at.is_none());
-            }
+            assert_eq!(tasks.len(), i as usize);
         }
     }
 
@@ -1475,6 +1645,45 @@ mod query_tests {
     }
 
     #[test]
+    async fn filter_has_start() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
+
+        let mut opts = create_default_opts();
+        opts.start_filter = Some(DateFilter::Exists(true));
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+        let tasks = res.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
+
+        for task in tasks {
+            // no deleted tasks
+            assert!(task.deleted_at.is_none());
+
+            assert!(task.start_dt.is_some());
+        }
+
+        let mut opts = create_default_opts();
+        opts.start_filter = Some(DateFilter::Exists(false));
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+        let tasks = res.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
+
+        for task in tasks {
+            // no deleted tasks
+            assert!(task.deleted_at.is_none());
+
+            assert!(task.start_dt.is_none());
+        }
+    }
+
+    #[test]
     async fn filter_start_on() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
@@ -1496,14 +1705,8 @@ mod query_tests {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(task.start_on.is_some() ^ task.start_at.is_some());
-
-            if let Some(date) = task.start_on {
-                assert_eq!(date, test_date);
-            }
-            if let Some(datetime) = task.start_at {
-                assert_eq!(datetime.date_naive(), test_date);
-            }
+            assert!(task.start_dt.is_some());
+            assert_eq!(task.start_dt.unwrap().date_naive(), test_date);
         }
     }
 
@@ -1529,13 +1732,8 @@ mod query_tests {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(!(task.start_on.is_some() && task.start_at.is_some()));
-
-            if let Some(date) = task.start_on {
-                assert_ne!(date, test_date);
-            }
-            if let Some(datetime) = task.start_at {
-                assert_ne!(datetime.date_naive(), test_date)
+            if let Some(dt) = task.start_dt {
+                assert_ne!(dt.date_naive(), test_date);
             }
         }
     }
@@ -1562,13 +1760,10 @@ mod query_tests {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(task.start_on.is_some() ^ task.start_at.is_some());
+            assert!(task.start_dt.is_some());
 
-            if let Some(date) = task.start_on {
-                assert!(date > test_date);
-            }
-            if let Some(datetime) = task.start_at {
-                assert!(datetime.date_naive() > test_date)
+            if let Some(dt) = task.start_dt {
+                assert!(dt.date_naive() > test_date);
             }
         }
     }
@@ -1595,13 +1790,10 @@ mod query_tests {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(task.start_on.is_some() ^ task.start_at.is_some());
+            assert!(task.start_dt.is_some());
 
-            if let Some(date) = task.start_on {
-                assert!(date >= test_date);
-            }
-            if let Some(datetime) = task.start_at {
-                assert!(datetime.date_naive() >= test_date)
+            if let Some(dt) = task.start_dt {
+                assert!(dt.date_naive() >= test_date);
             }
         }
     }
@@ -1628,13 +1820,10 @@ mod query_tests {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(task.start_on.is_some() ^ task.start_at.is_some());
+            assert!(task.start_dt.is_some());
 
-            if let Some(date) = task.start_on {
-                assert!(date < test_date);
-            }
-            if let Some(datetime) = task.start_at {
-                assert!(datetime.date_naive() < test_date)
+            if let Some(dt) = task.start_dt {
+                assert!(dt.date_naive() < test_date);
             }
         }
     }
@@ -1661,13 +1850,10 @@ mod query_tests {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(task.start_on.is_some() ^ task.start_at.is_some());
+            assert!(task.start_dt.is_some());
 
-            if let Some(date) = task.start_on {
-                assert!(date <= test_date);
-            }
-            if let Some(datetime) = task.start_at {
-                assert!(datetime.date_naive() <= test_date)
+            if let Some(dt) = task.start_dt {
+                assert!(dt.date_naive() <= test_date);
             }
         }
     }
@@ -1698,15 +1884,10 @@ mod query_tests {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(task.start_on.is_some() ^ task.start_at.is_some());
+            assert!(task.start_dt.is_some());
 
-            if let Some(date) = task.start_on {
-                assert!(date > test_date_min && date < test_date_max);
-            }
-            if let Some(datetime) = task.start_at {
-                assert!(
-                    datetime.date_naive() > test_date_min && datetime.date_naive() < test_date_max
-                )
+            if let Some(dt) = task.start_dt {
+                assert!(dt.date_naive() > test_date_min && dt.date_naive() < test_date_max);
             }
         }
     }
@@ -1737,16 +1918,10 @@ mod query_tests {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(task.start_on.is_some() ^ task.start_at.is_some());
+            assert!(task.start_dt.is_some());
 
-            if let Some(date) = task.start_on {
-                assert!(date >= test_date_min && date <= test_date_max);
-            }
-            if let Some(datetime) = task.start_at {
-                assert!(
-                    datetime.date_naive() >= test_date_min
-                        && datetime.date_naive() <= test_date_max
-                )
+            if let Some(dt) = task.start_dt {
+                assert!(dt.date_naive() >= test_date_min && dt.date_naive() <= test_date_max);
             }
         }
     }
@@ -1778,15 +1953,10 @@ mod query_tests {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(task.start_on.is_some() ^ task.start_at.is_some());
+            assert!(task.start_dt.is_some());
 
-            if let Some(date) = task.start_on {
-                assert!(date >= test_date_min && date < test_date_max);
-            }
-            if let Some(datetime) = task.start_at {
-                assert!(
-                    datetime.date_naive() >= test_date_min && datetime.date_naive() < test_date_max
-                )
+            if let Some(dt) = task.start_dt {
+                assert!(dt.date_naive() >= test_date_min && dt.date_naive() < test_date_max);
             }
         }
 
@@ -1806,16 +1976,50 @@ mod query_tests {
             // no deleted tasks
             assert!(task.deleted_at.is_none());
 
-            assert!(task.start_on.is_some() ^ task.start_at.is_some());
+            assert!(task.start_dt.is_some());
 
-            if let Some(date) = task.start_on {
-                assert!(date > test_date_min && date <= test_date_max);
+            if let Some(dt) = task.start_dt {
+                assert!(dt.date_naive() > test_date_min && dt.date_naive() <= test_date_max);
             }
-            if let Some(datetime) = task.start_at {
-                assert!(
-                    datetime.date_naive() > test_date_min && datetime.date_naive() <= test_date_max
-                )
-            }
+        }
+    }
+
+    #[test]
+    async fn filter_has_deadline() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        // create data
+        create_test_data(&mut tx).await;
+
+        let mut opts = create_default_opts();
+        opts.deadline_filter = Some(DateFilter::Exists(true));
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+        let tasks = res.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
+
+        for task in tasks {
+            // no deleted tasks
+            assert!(task.deleted_at.is_none());
+
+            assert!(task.deadline.is_some());
+        }
+
+        let mut opts = create_default_opts();
+        opts.deadline_filter = Some(DateFilter::Exists(false));
+
+        let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
+        assert!(res.is_ok());
+        let tasks = res.unwrap();
+        assert!(!tasks.is_empty(), "must have data to test on");
+
+        for task in tasks {
+            // no deleted tasks
+            assert!(task.deleted_at.is_none());
+
+            assert!(task.deadline.is_none());
         }
     }
 
@@ -2054,7 +2258,7 @@ mod query_tests {
     }
 
     #[test]
-    async fn query_contains_tags_for_tasks() {
+    async fn query_returns_tasks_with_tags() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
@@ -2071,6 +2275,7 @@ mod query_tests {
             .into_iter()
             .filter(|task| task.title.contains("Prio") || task.title.contains("Work"))
             .collect();
+        assert!(!tasks.is_empty(), "must have data to test on");
 
         for task in tasks {
             assert!(!task.tags.is_empty(), "{:?}", task);
@@ -2138,7 +2343,7 @@ mod query_tests {
             DateBound::Inclusive(date_mix),
             DateBound::Inclusive(date_max),
         ));
-        opts.sort_order = SortOrder::CreatedAsc;
+        opts.sort_order = TaskSort::Created(SortOrder::Ascending);
 
         assert!(query_tasks_inner(&mut tx, Uuid::nil(), opts).await.is_ok());
     }
@@ -2156,7 +2361,7 @@ mod select_tests {
         select_task_inner,
         test_helpers::{create_test_tag, create_test_task, get_pool},
     };
-    use crate::routes::models::{tag::Tag as TagCreate, task::Task as TaskCreate};
+    use crate::routes::models::{tag::Model as TagCreate, task::Model as TaskCreate};
 
     #[test]
     async fn base_select() {
@@ -2185,8 +2390,7 @@ mod select_tests {
         assert_eq!(task.id, task.id);
         assert_eq!(task.title, "");
         assert!(task.notes.is_none());
-        assert!(task.start_on.is_none());
-        assert!(task.start_at.is_none());
+        assert!(task.start_dt.is_none());
         assert!(task.deadline.is_none());
         assert!(task.tags.is_empty());
         assert!(task.completed_at.is_none());
@@ -2227,8 +2431,7 @@ mod select_tests {
             assert_eq!(task.id, id);
             assert_eq!(task.title, "");
             assert!(task.notes.is_none());
-            assert!(task.start_on.is_none());
-            assert!(task.start_at.is_none());
+            assert!(task.start_dt.is_none());
             assert!(task.deadline.is_none());
             assert!(task.tags.is_empty());
             assert!(task.completed_at.is_none());
@@ -2410,7 +2613,7 @@ mod insert_tests {
         insert_task_inner,
         test_helpers::{PG_SUBSEC_PREC, create_test_tag, get_pool},
     };
-    use crate::routes::models::{Start, tag::Tag as TagCreate, task::Task as TaskCreate};
+    use crate::routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate};
 
     #[test]
     async fn base_insert() {
@@ -2423,8 +2626,7 @@ mod insert_tests {
         let task = res.unwrap();
         assert_eq!(task.title, "");
         assert!(task.notes.is_none());
-        assert!(task.start_on.is_none());
-        assert!(task.start_at.is_none());
+        assert!(task.start_dt.is_none());
         assert!(task.deadline.is_none());
         assert!(task.tags.is_empty());
 
@@ -2458,8 +2660,7 @@ mod insert_tests {
         let task = res.unwrap();
         assert_eq!(task.title, "This is a test title for with_title() test");
         assert!(task.notes.is_none());
-        assert!(task.start_on.is_none());
-        assert!(task.start_at.is_none());
+        assert!(task.start_dt.is_none());
         assert!(task.deadline.is_none());
         assert!(task.tags.is_empty());
 
@@ -2497,8 +2698,7 @@ mod insert_tests {
             task.notes.unwrap(),
             "This is the notes section in the with_notes() test"
         );
-        assert!(task.start_on.is_none());
-        assert!(task.start_at.is_none());
+        assert!(task.start_dt.is_none());
         assert!(task.deadline.is_none());
         assert!(task.tags.is_empty());
 
@@ -2532,9 +2732,8 @@ mod insert_tests {
         let task = res.unwrap();
         assert_eq!(task.title, "");
         assert!(task.notes.is_none());
-        assert!(task.start_on.is_some());
-        assert_eq!(task.start_on.unwrap(), date);
-        assert!(task.start_at.is_none());
+        assert!(task.start_dt.is_some());
+        assert!(!task.has_time);
         assert!(task.deadline.is_none());
         assert!(task.tags.is_empty());
 
@@ -2568,12 +2767,8 @@ mod insert_tests {
         let task = res.unwrap();
         assert_eq!(task.title, "");
         assert!(task.notes.is_none());
-        assert!(task.start_on.is_none());
-        assert!(task.start_at.is_some());
-        assert_eq!(
-            task.start_at.unwrap(),
-            datetime.trunc_subsecs(PG_SUBSEC_PREC)
-        );
+        assert!(task.start_dt.is_some());
+        assert!(task.has_time);
         assert!(task.deadline.is_none());
         assert!(task.tags.is_empty());
 
@@ -2607,8 +2802,7 @@ mod insert_tests {
         let task = res.unwrap();
         assert_eq!(task.title, "");
         assert!(task.notes.is_none());
-        assert!(task.start_on.is_none());
-        assert!(task.start_at.is_none());
+        assert!(task.start_dt.is_none());
         assert!(task.deadline.is_some());
         assert_eq!(task.deadline.unwrap(), date);
         assert!(task.tags.is_empty());
@@ -2654,8 +2848,7 @@ mod insert_tests {
         let task = res.unwrap();
         assert_eq!(task.title, "");
         assert!(task.notes.is_none());
-        assert!(task.start_on.is_none());
-        assert!(task.start_at.is_none());
+        assert!(task.start_dt.is_none());
         assert!(task.deadline.is_none());
 
         assert_eq!(task.tags.len(), 1);
@@ -2728,8 +2921,7 @@ mod insert_tests {
         let task = res.unwrap();
         assert_eq!(task.title, "Test Task");
         assert!(task.notes.is_none());
-        assert!(task.start_on.is_none());
-        assert!(task.start_at.is_none());
+        assert!(task.start_dt.is_none());
         assert!(task.deadline.is_none());
         assert_eq!(task.tags.len(), 3);
         for (i, tag) in task.tags.iter().enumerate() {
@@ -2796,9 +2988,9 @@ mod insert_tests {
         assert_eq!(task.title, "Homework 1");
         assert!(task.notes.is_some());
         assert_eq!(task.notes.unwrap(), notes);
-        assert!(task.start_on.is_some());
-        assert_eq!(task.start_on.unwrap(), start);
-        assert!(task.start_at.is_none());
+        assert!(task.start_dt.is_some());
+        assert!(!task.has_time);
+        assert_eq!(task.start_dt.unwrap().date_naive(), start);
         assert!(task.deadline.is_some());
         assert_eq!(task.deadline.unwrap(), deadline);
         assert!(task.tags.is_empty());
@@ -2846,10 +3038,10 @@ mod insert_tests {
         assert_eq!(task.title, "Study for Exam 1");
         assert!(task.notes.is_some());
         assert_eq!(task.notes.unwrap(), notes);
-        assert!(task.start_on.is_none());
-        assert!(task.start_at.is_some());
+        assert!(task.start_dt.is_some());
+        assert!(task.has_time);
         assert_eq!(
-            task.start_at.unwrap(),
+            task.start_dt.unwrap(),
             start_datetime.trunc_subsecs(PG_SUBSEC_PREC)
         );
         assert!(task.deadline.is_some());
@@ -2878,7 +3070,7 @@ mod update_tests {
     };
     use crate::{
         db::{ApplicationError, Error},
-        routes::models::{Start, tag::Tag as TagCreate, task::Task as TaskCreate},
+        routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate},
     };
 
     #[test]
@@ -2927,8 +3119,8 @@ mod update_tests {
         assert_eq!(after_task.title, "New title");
 
         assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_on, after_task.start_on);
-        assert_eq!(before_task.start_at, after_task.start_at);
+        assert_eq!(before_task.start_dt, after_task.start_dt);
+        assert_eq!(before_task.has_time, after_task.has_time);
         assert_eq!(before_task.deadline, after_task.deadline);
         assert_eq!(before_task.tags, after_task.tags);
     }
@@ -2965,8 +3157,8 @@ mod update_tests {
         }
 
         assert_eq!(before_task.title, after_task.title);
-        assert_eq!(before_task.start_on, after_task.start_on);
-        assert_eq!(before_task.start_at, after_task.start_at);
+        assert_eq!(before_task.start_dt, after_task.start_dt);
+        assert_eq!(before_task.has_time, after_task.has_time);
         assert_eq!(before_task.deadline, after_task.deadline);
         assert_eq!(before_task.tags, after_task.tags);
     }
@@ -2997,14 +3189,11 @@ mod update_tests {
 
         let after_task = res.unwrap();
         assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.start_on, after_task.start_on);
-        assert!(after_task.start_on.is_some());
-        assert_eq!(after_task.start_on.unwrap(), updated_start);
-        assert!(after_task.start_at.is_none());
-
+        assert_ne!(before_task.start_dt, after_task.start_dt);
+        assert_eq!(after_task.start_dt.unwrap().date_naive(), updated_start);
         assert_eq!(before_task.title, after_task.title);
         assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_at, after_task.start_at);
+        assert_eq!(before_task.has_time, after_task.has_time);
         assert_eq!(before_task.deadline, after_task.deadline);
         assert_eq!(before_task.tags, after_task.tags);
 
@@ -3037,17 +3226,15 @@ mod update_tests {
 
         let after_task = res.unwrap();
         assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.start_at, after_task.start_at);
-        assert!(after_task.start_on.is_none());
-        assert!(after_task.start_at.is_some());
+        assert_ne!(before_task.start_dt, after_task.start_dt);
+        assert_ne!(before_task.has_time, after_task.has_time);
         assert_eq!(
-            after_task.start_at.unwrap(),
+            after_task.start_dt.unwrap(),
             updated_start.trunc_subsecs(PG_SUBSEC_PREC)
         );
 
         assert_eq!(before_task.title, after_task.title);
         assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_on, after_task.start_on);
         assert_eq!(before_task.deadline, after_task.deadline);
         assert_eq!(before_task.tags, after_task.tags);
 
@@ -3139,8 +3326,7 @@ mod update_tests {
 
         assert_eq!(before_task.title, after_task.title);
         assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_on, after_task.start_on);
-        assert_eq!(before_task.start_at, after_task.start_at);
+        assert_eq!(before_task.start_dt, after_task.start_dt);
         assert_eq!(before_task.tags, after_task.tags);
     }
 
@@ -3192,8 +3378,7 @@ mod update_tests {
 
         assert_eq!(before_task.title, after_task.title);
         assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_on, after_task.start_on);
-        assert_eq!(before_task.start_at, after_task.start_at);
+        assert_eq!(before_task.start_dt, after_task.start_dt);
         assert_eq!(before_task.deadline, after_task.deadline);
     }
 
@@ -3265,8 +3450,7 @@ mod update_tests {
 
         assert_eq!(before_task.title, after_task.title);
         assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_on, after_task.start_on);
-        assert_eq!(before_task.start_at, after_task.start_at);
+        assert_eq!(before_task.start_dt, after_task.start_dt);
         assert_eq!(before_task.deadline, after_task.deadline);
     }
 
@@ -3334,8 +3518,7 @@ mod update_tests {
 
         assert_eq!(before_task.title, after_task.title);
         assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_on, after_task.start_on);
-        assert_eq!(before_task.start_at, after_task.start_at);
+        assert_eq!(before_task.start_dt, after_task.start_dt);
         assert_eq!(before_task.deadline, after_task.deadline);
     }
 
@@ -3477,8 +3660,8 @@ mod update_tests {
 
         let after_task = res.unwrap();
         assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.start_on, after_task.start_on);
-        if let (Some(before_date), Some(after_date)) = (before_task.start_on, after_task.start_on) {
+        assert_ne!(before_task.start_dt, after_task.start_dt);
+        if let (Some(before_date), Some(after_date)) = (before_task.start_dt, after_task.start_dt) {
             assert_eq!(before_date + Duration::weeks(1), after_date);
         }
         assert_ne!(before_task.deadline, after_task.deadline);
@@ -3488,7 +3671,6 @@ mod update_tests {
 
         assert_eq!(before_task.title, after_task.title);
         assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_at, after_task.start_at);
         assert_eq!(before_task.tags, after_task.tags);
     }
 
@@ -3667,7 +3849,7 @@ mod delete_tests {
         delete_task_inner,
         test_helpers::{create_test_task, get_pool, get_task},
     };
-    use crate::routes::models::task::Task as TaskCreate;
+    use crate::routes::models::task::Model as TaskCreate;
 
     #[test]
     async fn base_delete() {
@@ -3806,7 +3988,7 @@ mod restore_tests {
     };
     use crate::{
         db::{ApplicationError, Error},
-        routes::models::task::Task as TaskCreate,
+        routes::models::task::Model as TaskCreate,
     };
 
     #[test]
@@ -3941,7 +4123,7 @@ mod complete_tests {
     };
     use crate::{
         db::{ApplicationError, Error},
-        routes::models::task::Task as TaskCreate,
+        routes::models::task::Model as TaskCreate,
     };
 
     #[test]

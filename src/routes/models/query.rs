@@ -38,38 +38,39 @@ impl Default for Pagination {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum DateFilter {
+    /// Existence Filter
+    Has(bool),
+
+    /// Exact Filter, has to match exactly
     Exact(NaiveDate),
 
+    /// Filter created by complex queries
     BracketInterval(BracketInterval),
 
+    /// Filter created by ISO8601 Interval format (<start>/<end>)
     #[serde(deserialize_with = "deserialize_iso8601daterange")]
     ISO8601Interval(ISO8601Interval),
 }
 
+/// Bracket Interval Deserialization Type
+///
+/// This allows conversion of complex url query parameters (i.e. `param[cmp]=value`) with date as value and comparison operators as the complex parameters
 #[derive(Debug, Deserialize)]
 pub struct BracketInterval {
+    #[serde(alias = "<>")]
     pub(crate) ne: Option<NaiveDate>,
-    pub(crate) gt: Option<NaiveDate>,
-    pub(crate) gte: Option<NaiveDate>,
+    #[serde(alias = "<")]
     pub(crate) lt: Option<NaiveDate>,
     pub(crate) lte: Option<NaiveDate>,
+    #[serde(alias = ">")]
+    pub(crate) gt: Option<NaiveDate>,
+    pub(crate) gte: Option<NaiveDate>,
 }
 
-pub type ISO8601Interval = [NaiveDate; 2];
-
-/// Sort Field Type
+/// ISO8601 Interval Deserialization Type
 ///
-/// This represents the url query for the field to sort by
-#[derive(Debug, Default, Deserialize)]
-pub enum SortBy {
-    #[serde(rename = "created")]
-    Created,
-    #[default]
-    #[serde(rename = "updated")]
-    Updated,
-    // TODO: add deadline
-    // TODO: add start date
-}
+/// This allows conversion of url queries that have a ISO8601 Interval as a value (<start>/<end>)
+pub type ISO8601Interval = [NaiveDate; 2];
 
 /// Sort Order Type
 ///
@@ -77,10 +78,10 @@ pub enum SortBy {
 #[derive(Debug, Default, Deserialize)]
 pub enum SortOrder {
     #[serde(rename = "asc")]
-    OldestFirst,
+    Ascending,
     #[default]
     #[serde(rename = "desc")]
-    NewestFirst,
+    Descending,
 }
 
 /// Completed Body Type
