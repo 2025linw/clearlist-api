@@ -48,7 +48,8 @@ pub async fn get_pool() -> &'static PgPool {
     .await
 }
 
-pub async fn get_time() -> DateTime<Utc> {
+/// Gets current time in Utc that matches the default PostgreSQL precision (6 decimals)
+pub fn get_time() -> DateTime<Utc> {
     Utc::now().trunc_subsecs(PG_SUBSEC_PREC)
 }
 

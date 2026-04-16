@@ -302,7 +302,9 @@ async fn insert_task_inner(
     let mut task_row = match res {
         Ok(row) => row,
         Err(err) => {
-            if let Some(db_err) = err.as_database_error() && let Some("tasks_created_by_fkey") = db_err.constraint() {
+            if let Some(db_err) = err.as_database_error()
+                && let Some("tasks_created_by_fkey") = db_err.constraint()
+            {
                 return Err(Error::Application(ApplicationError::UserNotFound));
             }
 
@@ -615,7 +617,7 @@ mod query_tests {
         let mut num_tags = 0;
 
         // Create empty tasks
-        let base_time = get_time().await;
+        let base_time = get_time();
         for i in 1..=10 {
             let title = format!("Test Task {}", i);
 
@@ -1241,7 +1243,7 @@ mod query_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         // create lots of test data
         for i in 0..400 {
@@ -2156,15 +2158,17 @@ mod select_tests {
     use uuid::Uuid;
 
     use super::select_task_inner;
-    use crate::db::test_utils::{create_test_tag, create_test_task, get_pool, get_time};
-    use crate::routes::models::{tag::Model as TagCreate, task::Model as TaskCreate};
+    use crate::{
+        db::test_utils::{create_test_tag, create_test_task, get_pool, get_time},
+        routes::models::{tag::Model as TagCreate, task::Model as TaskCreate},
+    };
 
     #[test]
     async fn base_select() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -2198,7 +2202,7 @@ mod select_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let mut seen_ids = HashSet::new();
         for _ in 0..10 {
@@ -2240,7 +2244,7 @@ mod select_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let tag = create_test_tag(
             &mut tx,
@@ -2289,7 +2293,7 @@ mod select_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let tag_1 = create_test_tag(
             &mut tx,
@@ -2359,7 +2363,7 @@ mod select_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let mut seen_ids = HashSet::new();
         for _ in 0..10 {
@@ -2403,7 +2407,7 @@ mod select_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -2425,14 +2429,16 @@ mod select_tests {
 
 #[cfg(test)]
 mod insert_tests {
-    use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, SubsecRound, Utc};
+    use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, Utc};
     use tokio::test;
     use uuid::Uuid;
 
     use super::insert_task_inner;
-    use crate::db::{ApplicationError, Error};
-    use crate::db::test_utils::{PG_SUBSEC_PREC, create_test_tag, get_pool, get_time};
-    use crate::routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate};
+    use crate::db::test_utils::{create_test_tag, get_pool, get_time};
+    use crate::{
+        db::{ApplicationError, Error},
+        routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate},
+    };
 
     #[test]
     async fn base_insert() {
@@ -2640,7 +2646,7 @@ mod insert_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let tag = create_test_tag(
             &mut tx,
@@ -2692,7 +2698,7 @@ mod insert_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let tag_1 = create_test_tag(
             &mut tx,
@@ -2786,7 +2792,10 @@ mod insert_tests {
         let res = insert_task_inner(&mut tx, Uuid::new_v4(), TaskCreate::default()).await;
         assert!(res.is_err());
         if let Err(err) = res {
-            assert!(matches!(err, Error::Application(ApplicationError::UserNotFound)))
+            assert!(matches!(
+                err,
+                Error::Application(ApplicationError::UserNotFound)
+            ))
         }
     }
 
@@ -2871,10 +2880,7 @@ mod insert_tests {
         assert_eq!(task.notes.unwrap(), notes);
         assert!(task.start_dt.is_some());
         assert!(task.has_time);
-        assert_eq!(
-            task.start_dt.unwrap(),
-            start_datetime.trunc_subsecs(PG_SUBSEC_PREC)
-        );
+        assert_eq!(task.start_dt.unwrap(), start_datetime);
         assert!(task.deadline.is_some());
         assert_eq!(task.deadline.unwrap(), deadline);
         assert!(task.tags.is_empty());
@@ -2891,14 +2897,12 @@ mod insert_tests {
 
 #[cfg(test)]
 mod update_tests {
-    use chrono::{Duration, NaiveDate, SubsecRound, Utc};
+    use chrono::{Duration, NaiveDate, Utc};
     use tokio::test;
     use uuid::Uuid;
 
     use super::update_task_inner;
-    use crate::db::test_utils::{
-        PG_SUBSEC_PREC, create_test_tag, create_test_task, get_pool, get_task, get_time,
-    };
+    use crate::db::test_utils::{create_test_tag, create_test_task, get_pool, get_task, get_time};
     use crate::{
         db::{ApplicationError, Error},
         routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate},
@@ -2926,7 +2930,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now().trunc_subsecs(PG_SUBSEC_PREC);
+        let base_time = get_time();
 
         let before_task = create_test_task(
             &mut tx,
@@ -2952,7 +2956,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let before_task = create_test_task(
             &mut tx,
@@ -2987,7 +2991,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let before_task = create_test_task(
             &mut tx,
@@ -3025,7 +3029,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let before_task = create_test_task(
             &mut tx,
@@ -3062,7 +3066,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let before_task = create_test_task(
             &mut tx,
@@ -3085,10 +3089,7 @@ mod update_tests {
         assert_ne!(before_task.updated_at, after_task.updated_at);
         assert_ne!(before_task.start_dt, after_task.start_dt);
         assert_ne!(before_task.has_time, after_task.has_time);
-        assert_eq!(
-            after_task.start_dt.unwrap(),
-            updated_start.trunc_subsecs(PG_SUBSEC_PREC)
-        );
+        assert_eq!(after_task.start_dt.unwrap(), updated_start);
 
         assert_eq!(before_task.title, after_task.title);
         assert_eq!(before_task.notes, after_task.notes);
@@ -3108,7 +3109,7 @@ mod update_tests {
         // let pool = get_pool().await;
         // let mut tx = pool.begin().await.unwrap();
 
-        // let base_time = get_time().await;
+        // let base_time = get_time();
 
         // let datetime = Utc::now();
         // let date = datetime.date_naive();
@@ -3154,7 +3155,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let before_task = create_test_task(
             &mut tx,
@@ -3192,7 +3193,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let tag = create_test_tag(
             &mut tx,
@@ -3244,7 +3245,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let tag_1 = create_test_tag(
             &mut tx,
@@ -3316,7 +3317,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let tag_1 = create_test_tag(
             &mut tx,
@@ -3384,7 +3385,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let before_task = create_test_task(
             &mut tx,
@@ -3411,7 +3412,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -3448,7 +3449,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -3463,7 +3464,10 @@ mod update_tests {
         let res = update_task_inner(&mut tx, task.id, Uuid::new_v4(), task.clone().into()).await;
         assert!(res.is_err());
         if let Err(err) = res {
-            assert!(matches!(err, Error::Application(ApplicationError::TaskNotFound)))
+            assert!(matches!(
+                err,
+                Error::Application(ApplicationError::TaskNotFound)
+            ))
         }
     }
 
@@ -3472,7 +3476,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let before_task = create_test_task(
             &mut tx,
@@ -3522,7 +3526,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let backlog_tag = create_test_tag(
             &mut tx,
@@ -3643,7 +3647,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let before_task = create_test_task(
             &mut tx,
@@ -3696,7 +3700,7 @@ mod delete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -3731,7 +3735,7 @@ mod delete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -3776,7 +3780,7 @@ mod delete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -3820,7 +3824,7 @@ mod delete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -3854,7 +3858,7 @@ mod restore_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -3886,7 +3890,7 @@ mod restore_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -3928,7 +3932,7 @@ mod restore_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -3973,7 +3977,7 @@ mod restore_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -3988,7 +3992,10 @@ mod restore_tests {
         let res = restore_task_inner(&mut tx, task.id, Uuid::new_v4()).await;
         assert!(res.is_err());
         if let Err(err) = res {
-            assert!(matches!(err, Error::Application(ApplicationError::TaskNotFound)))
+            assert!(matches!(
+                err,
+                Error::Application(ApplicationError::TaskNotFound)
+            ))
         }
     }
 }
@@ -4010,7 +4017,7 @@ mod complete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -4045,7 +4052,7 @@ mod complete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -4090,7 +4097,7 @@ mod complete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -4123,7 +4130,7 @@ mod complete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         // uncomplete task
         let task = create_test_task(
@@ -4189,7 +4196,7 @@ mod complete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -4221,7 +4228,7 @@ mod complete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -4263,7 +4270,7 @@ mod complete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         let task = create_test_task(
             &mut tx,
@@ -4296,7 +4303,7 @@ mod complete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = get_time().await;
+        let base_time = get_time();
 
         // uncomplete task
         let task = create_test_task(
