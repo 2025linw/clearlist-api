@@ -5,7 +5,7 @@
 use std::error::Error as StdError;
 use std::fmt::Display;
 
-use crate::com::constants::{TAG_NOT_FOUND, TASK_NOT_FOUND};
+use crate::com::constants::{TAG_NOT_FOUND, TASK_NOT_FOUND, USER_NOT_FOUND};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -132,6 +132,7 @@ impl From<sqlx::Error> for Error {
 /// This enum represents the different types of application (business) logic errors
 #[derive(Debug)]
 pub enum ApplicationError {
+    UserNotFound,
     TaskNotFound,
     TagNotFound,
     InvalidDateRange(String),
@@ -142,6 +143,7 @@ pub enum ApplicationError {
 impl Display for ApplicationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ApplicationError::UserNotFound => write!(f, "{}", USER_NOT_FOUND),
             ApplicationError::TaskNotFound => write!(f, "{}", TASK_NOT_FOUND),
             ApplicationError::TagNotFound => write!(f, "{}", TAG_NOT_FOUND),
             ApplicationError::InvalidDateRange(msg) => write!(f, "Invalid date range: {}", msg),

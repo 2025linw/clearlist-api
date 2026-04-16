@@ -274,7 +274,7 @@ async fn insert_task_inner(
     user_id: Uuid,
     insert_task: TaskCreate,
 ) -> Result<Task> {
-    let mut task_row = query_as_wrapper::<Task>(
+    let res = query_as_wrapper::<Task>(
         "INSERT INTO app.tasks (title, notes, start_dt, has_time, deadline, created_by)
         VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING *",
@@ -297,7 +297,18 @@ async fn insert_task_inner(
     .bind(insert_task.deadline)
     .bind(user_id)
     .fetch_one(conn.as_mut())
-    .await?;
+    .await;
+
+    let mut task_row = match res {
+        Ok(row) => row,
+        Err(err) => {
+            if let Some(db_err) = err.as_database_error() && let Some("tasks_created_by_fkey") = db_err.constraint() {
+                return Err(Error::Application(ApplicationError::UserNotFound));
+            }
+
+            return Err(err.into());
+        }
+    };
 
     if !insert_task.tags.is_empty() {
         task_row.tags =
@@ -2183,7 +2194,7 @@ mod select_tests {
     }
 
     #[test]
-    async fn select_many_different() {
+    async fn many_various_tasks() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
@@ -2225,7 +2236,7 @@ mod select_tests {
     }
 
     #[test]
-    async fn select_with_tag() {
+    async fn task_with_tag() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
@@ -2274,7 +2285,7 @@ mod select_tests {
     }
 
     #[test]
-    async fn select_with_tags() {
+    async fn task_with_multiple_tags() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
@@ -2344,7 +2355,7 @@ mod select_tests {
     }
 
     #[test]
-    async fn select_deleted() {
+    async fn deleted_task() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
@@ -2376,11 +2387,35 @@ mod select_tests {
     }
 
     #[test]
-    async fn select_nonexistent() {
+    async fn nonexistent_task() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
         let res = select_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil()).await;
+        assert!(res.is_ok());
+
+        let task_opt = res.unwrap();
+        assert!(task_opt.is_none());
+    }
+
+    #[test]
+    async fn as_nonexistent_user() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = get_time().await;
+
+        let task = create_test_task(
+            &mut tx,
+            TaskCreate::default(),
+            None,
+            None,
+            base_time,
+            base_time + Duration::from_hours(1),
+        )
+        .await;
+
+        let res = select_task_inner(&mut tx, task.id, Uuid::new_v4()).await;
         assert!(res.is_ok());
 
         let task_opt = res.unwrap();
@@ -2395,6 +2430,7 @@ mod insert_tests {
     use uuid::Uuid;
 
     use super::insert_task_inner;
+    use crate::db::{ApplicationError, Error};
     use crate::db::test_utils::{PG_SUBSEC_PREC, create_test_tag, get_pool, get_time};
     use crate::routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate};
 
@@ -2740,6 +2776,18 @@ mod insert_tests {
         .await;
 
         assert!(res.is_err());
+    }
+
+    #[test]
+    async fn as_nonexistent_user() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let res = insert_task_inner(&mut tx, Uuid::new_v4(), TaskCreate::default()).await;
+        assert!(res.is_err());
+        if let Err(err) = res {
+            assert!(matches!(err, Error::Application(ApplicationError::UserNotFound)))
+        }
     }
 
     #[test]
@@ -3396,6 +3444,30 @@ mod update_tests {
     }
 
     #[test]
+    async fn as_nonexistent_user() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = get_time().await;
+
+        let task = create_test_task(
+            &mut tx,
+            TaskCreate::default(),
+            None,
+            None,
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = update_task_inner(&mut tx, task.id, Uuid::new_v4(), task.clone().into()).await;
+        assert!(res.is_err());
+        if let Err(err) = res {
+            assert!(matches!(err, Error::Application(ApplicationError::TaskNotFound)))
+        }
+    }
+
+    #[test]
     async fn combination_1() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
@@ -3742,6 +3814,27 @@ mod delete_tests {
 
         assert_eq!(res.unwrap(), (), "delete should return unit '()'");
     }
+
+    #[test]
+    async fn as_nonexistent_user() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = get_time().await;
+
+        let task = create_test_task(
+            &mut tx,
+            TaskCreate::default(),
+            None,
+            None,
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = delete_task_inner(&mut tx, task.id, Uuid::new_v4()).await;
+        assert!(res.is_ok());
+    }
 }
 
 #[cfg(test)]
@@ -3873,6 +3966,30 @@ mod restore_tests {
             res,
             Err(Error::Application(ApplicationError::TaskNotFound))
         ));
+    }
+
+    #[test]
+    async fn as_nonexistent_user() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = get_time().await;
+
+        let task = create_test_task(
+            &mut tx,
+            TaskCreate::default(),
+            None,
+            None,
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = restore_task_inner(&mut tx, task.id, Uuid::new_v4()).await;
+        assert!(res.is_err());
+        if let Err(err) = res {
+            assert!(matches!(err, Error::Application(ApplicationError::TaskNotFound)))
+        }
     }
 }
 
@@ -4056,6 +4173,18 @@ mod complete_tests {
     }
 
     #[test]
+    async fn complete_as_nonexistent_user() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let res = complete_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), true).await;
+        assert!(matches!(
+            res,
+            Err(Error::Application(ApplicationError::TaskNotFound))
+        ));
+    }
+
+    #[test]
     async fn uncomplete_task() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
@@ -4206,6 +4335,18 @@ mod complete_tests {
 
     #[test]
     async fn uncomplete_nonexistent() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let res = complete_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), false).await;
+        assert!(matches!(
+            res,
+            Err(Error::Application(ApplicationError::TaskNotFound))
+        ));
+    }
+
+    #[test]
+    async fn uncomplete_as_nonexistent_user() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
