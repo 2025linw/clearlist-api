@@ -13,6 +13,7 @@ use super::{DateFilter, Pagination, SortOrder, Start};
 /// This represents the fields a client is able to create/modify for a Task
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(Default, Clone))]
+#[serde(rename_all = "camelCase")]
 pub struct Model {
     #[serde(default)]
     pub title: String,

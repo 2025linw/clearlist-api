@@ -86,6 +86,7 @@ impl IntoResponse for Response {
 ///
 /// This model is returned back to the user in responses that contain task(s)
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TaskResponse {
     pub id: uuid::Uuid,
 
@@ -135,6 +136,7 @@ impl From<Task> for TaskResponse {
 ///
 /// This model is returned back to the user in responses that contain tag(s)
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TagResponse {
     pub id: uuid::Uuid,
 
