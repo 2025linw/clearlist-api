@@ -49,7 +49,7 @@ pub fn create_api_router() -> Router<AppState> {
                 )
                 .route(
                     "/{tag_id}",
-                    patch(task::tag::create_handler).delete(task::tag::delete_handler),
+                    patch(task::tag::append_handler).delete(task::tag::delete_handler),
                 ),
         );
 
