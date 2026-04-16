@@ -8,6 +8,9 @@ pub mod task;
 
 mod error;
 
+#[cfg(test)]
+mod test_utils;
+
 pub use error::{ApplicationError, Error, Result};
 
 use std::env;

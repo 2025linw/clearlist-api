@@ -347,9 +347,9 @@ async fn update_task_inner(
 ) -> Result<Task> {
     // TOOD: make this truly idempotent, don't update if no actual change is made
     let task_opt = query_as_wrapper::<Task>(
-        "UPDATE app.tasks SET
-        (updated_at, title, notes, start_dt, has_time, deadline) =
-        (CURRENT_TIMESTAMP, $3, $4, $5, $6, $7)
+        "UPDATE app.tasks
+        SET (title, notes, start_dt, has_time, deadline)
+        = ($3, $4, $5, $6, $7)
         WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL
         RETURNING *",
     )
@@ -562,240 +562,6 @@ async fn complete_task_inner(
 }
 
 #[cfg(test)]
-mod test_helpers {
-    use std::env;
-
-    use chrono::{DateTime, SubsecRound, Utc};
-    use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
-    use tokio::sync::OnceCell;
-    use uuid::Uuid;
-
-    use crate::{
-        db::{query_as_wrapper, task::update_task_tags_inner},
-        models::{Tag, Task},
-        routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate},
-        run_migration,
-    };
-
-    pub const PG_SUBSEC_PREC: u16 = 6;
-
-    static POOL: OnceCell<PgPool> = OnceCell::const_new();
-    pub async fn get_pool() -> &'static PgPool {
-        POOL.get_or_init(|| async {
-            dotenvy::dotenv().ok();
-
-            let url = env::var("MIGRATION_URL").unwrap();
-            let mut conn = PgConnection::connect(&url).await.unwrap();
-
-            // migration
-            run_migration(&mut conn).await.unwrap();
-
-            // add dummy user
-            sqlx::query(
-                "INSERT INTO auth.user (\"id\", \"name\", \"email\", \"emailVerified\")
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT (\"id\") DO NOTHING;",
-            )
-            .bind(Uuid::nil())
-            .bind("testuser")
-            .bind("testuser@email.com")
-            .bind(false)
-            .execute(&mut conn)
-            .await
-            .unwrap();
-
-            // testing user
-            let url = env::var("DATABASE_URL").unwrap();
-            let pool_opts = PgPoolOptions::new().max_connections(1);
-
-            pool_opts.connect(&url).await.unwrap()
-        })
-        .await
-    }
-
-    pub async fn create_test_task(
-        conn: &mut PgConnection,
-        task: TaskCreate,
-        completed_at: Option<DateTime<Utc>>,
-        deleted_at: Option<DateTime<Utc>>,
-        created_at: DateTime<Utc>,
-        updated_at: DateTime<Utc>,
-    ) -> Task {
-        let task_id = sqlx::query_scalar(
-            "INSERT INTO app.tasks (title, notes, start_dt, has_time, deadline, created_by, completed_at, deleted_at, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
-        )
-        .bind(task.title.clone())
-        .bind(task.notes.clone())
-        .bind(task.start.as_ref().and_then(|s| match s.as_at() {
-            Some(dt) => Some(dt),
-            None => match s.as_on() {
-                Some(d) => Some(d.and_hms_opt(0, 0, 0).unwrap().and_utc()),
-                None => unreachable!(),
-            }
-        }))
-        .bind(task.start.as_ref().is_some_and(|s| s.as_at().is_some()))
-        .bind(task.deadline)
-        .bind(Uuid::nil())
-        .bind(completed_at)
-        .bind(deleted_at)
-        .bind(created_at)
-        .bind(updated_at)
-        .fetch_one(conn.as_mut())
-        .await.unwrap();
-
-        if !task.tags.is_empty() {
-            update_task_tags_inner(conn, task_id, Uuid::nil(), task.tags.clone())
-                .await
-                .unwrap();
-        }
-
-        let ret_task = get_task(conn, task_id).await;
-        assert_eq!(ret_task.title, task.title, "title does not match input");
-        assert_eq!(ret_task.notes, task.notes, "notes does not match input");
-        if task.start.is_some() {
-            assert!(ret_task.start_dt.is_some());
-            if let Some(dt) = task.start {
-                match dt {
-                    Start::On(date) => assert_eq!(ret_task.start_dt.unwrap().date_naive(), date),
-                    Start::At(date_time) => assert_eq!(ret_task.start_dt.unwrap(), date_time),
-                }
-            }
-        } else {
-            assert!(ret_task.start_dt.is_none())
-        }
-        assert_eq!(
-            ret_task.deadline, task.deadline,
-            "deadline does not match input"
-        );
-        assert_eq!(
-            ret_task.tags.len(),
-            task.tags.len(),
-            "number of tags does not match input"
-        );
-        assert_eq!(
-            ret_task
-                .tags
-                .iter()
-                .map(|tag| tag.id)
-                .collect::<Vec<Uuid>>(),
-            task.tags,
-            "tags don't match input"
-        );
-        assert_eq!(
-            ret_task.created_by,
-            Uuid::nil(),
-            "created_by does not match input"
-        );
-        assert_eq!(
-            ret_task.completed_at,
-            completed_at.map(|date| date.trunc_subsecs(PG_SUBSEC_PREC)),
-            "completed_at does not match input"
-        );
-        assert_eq!(
-            ret_task.deleted_at,
-            deleted_at.map(|date| date.trunc_subsecs(PG_SUBSEC_PREC)),
-            "deleted_at does not match input"
-        );
-        assert_eq!(
-            ret_task.created_at,
-            created_at.trunc_subsecs(PG_SUBSEC_PREC),
-            "created_at does not match input"
-        );
-        assert_eq!(
-            ret_task.updated_at,
-            updated_at.trunc_subsecs(PG_SUBSEC_PREC),
-            "updated_at does not match input"
-        );
-
-        ret_task
-    }
-
-    pub async fn get_task(conn: &mut PgConnection, task_id: Uuid) -> Task {
-        let mut task = query_as_wrapper::<Task>(
-            "SELECT *
-                FROM app.tasks
-                WHERE id = $1 AND created_by = $2",
-        )
-        .bind(task_id)
-        .bind(Uuid::nil())
-        .fetch_one(conn.as_mut())
-        .await
-        .unwrap();
-
-        task.tags = query_as_wrapper::<Tag>(
-            "SELECT tg.*
-                FROM app.task_tags tt
-                JOIN app.tags tg ON tt.tag_id = tg.id
-                WHERE tt.task_id = $1",
-        )
-        .bind(task_id)
-        .fetch_all(conn.as_mut())
-        .await
-        .unwrap();
-
-        task
-    }
-
-    pub async fn create_test_tag(
-        conn: &mut PgConnection,
-        tag: TagCreate,
-        created_at: DateTime<Utc>,
-        updated_at: DateTime<Utc>,
-    ) -> Tag {
-        let tag_id = sqlx::query_scalar(
-            "INSERT INTO app.tags (label, category, created_by, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5) RETURNING id",
-        )
-        .bind(tag.label.clone())
-        .bind(tag.category.clone())
-        .bind(Uuid::nil())
-        .bind(created_at)
-        .bind(updated_at)
-        .fetch_one(conn.as_mut())
-        .await
-        .unwrap();
-
-        let ret_tag = get_tag(conn, tag_id).await;
-        assert_eq!(ret_tag.label, tag.label, "label does not match input");
-        assert_eq!(
-            ret_tag.category, tag.category,
-            "category does not match input"
-        );
-        assert_eq!(
-            ret_tag.created_by,
-            Uuid::nil(),
-            "created_by does not match input"
-        );
-        assert_eq!(
-            ret_tag.created_at,
-            created_at.trunc_subsecs(PG_SUBSEC_PREC),
-            "created_at does not match input"
-        );
-        assert_eq!(
-            ret_tag.updated_at,
-            updated_at.trunc_subsecs(PG_SUBSEC_PREC),
-            "updated_at does not match input"
-        );
-
-        ret_tag
-    }
-
-    pub async fn get_tag(conn: &mut PgConnection, tag_id: Uuid) -> Tag {
-        query_as_wrapper::<Tag>(
-            "SELECT *
-        FROM app.tags
-        WHERE id = $1 AND created_by = $2",
-        )
-        .bind(tag_id)
-        .bind(Uuid::nil())
-        .fetch_one(conn.as_mut())
-        .await
-        .unwrap()
-    }
-}
-
-#[cfg(test)]
 mod query_tests {
     use std::{collections::HashSet, time::Duration};
 
@@ -804,10 +570,8 @@ mod query_tests {
     use tokio::test;
     use uuid::Uuid;
 
-    use super::{
-        TaskQueryOptions, query_tasks_inner,
-        test_helpers::{create_test_tag, create_test_task, get_pool},
-    };
+    use super::{TaskQueryOptions, query_tasks_inner};
+    use crate::db::test_utils::{create_test_tag, create_test_task, get_pool, get_time};
     use crate::{
         com::constants::MAX_LIMIT,
         db::{
@@ -840,7 +604,7 @@ mod query_tests {
         let mut num_tags = 0;
 
         // Create empty tasks
-        let base_time = Utc::now();
+        let base_time = get_time().await;
         for i in 1..=10 {
             let title = format!("Test Task {}", i);
 
@@ -1466,7 +1230,7 @@ mod query_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         // create lots of test data
         for i in 0..400 {
@@ -1614,6 +1378,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -1636,6 +1401,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -1657,6 +1423,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -1672,6 +1439,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -1698,6 +1466,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -1725,6 +1494,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -1753,6 +1523,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -1783,6 +1554,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -1813,6 +1585,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -1843,6 +1616,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -1877,6 +1651,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -1911,6 +1686,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -1946,6 +1722,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -1969,6 +1746,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -1997,6 +1775,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -2012,6 +1791,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -2038,6 +1818,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -2064,6 +1845,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -2092,6 +1874,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -2120,6 +1903,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -2148,6 +1932,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -2176,6 +1961,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -2208,6 +1994,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -2242,6 +2029,7 @@ mod query_tests {
 
         let res = query_tasks_inner(&mut tx, Uuid::nil(), opts).await;
         assert!(res.is_ok());
+
         let tasks = res.unwrap();
         assert!(!tasks.is_empty(), "must have data to test on");
 
@@ -2353,14 +2141,11 @@ mod query_tests {
 mod select_tests {
     use std::{collections::HashSet, time::Duration};
 
-    use chrono::Utc;
     use tokio::test;
     use uuid::Uuid;
 
-    use super::{
-        select_task_inner,
-        test_helpers::{create_test_tag, create_test_task, get_pool},
-    };
+    use super::select_task_inner;
+    use crate::db::test_utils::{create_test_tag, create_test_task, get_pool, get_time};
     use crate::routes::models::{tag::Model as TagCreate, task::Model as TaskCreate};
 
     #[test]
@@ -2368,7 +2153,7 @@ mod select_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let task = create_test_task(
             &mut tx,
@@ -2402,7 +2187,7 @@ mod select_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let mut seen_ids = HashSet::new();
         for _ in 0..10 {
@@ -2444,7 +2229,7 @@ mod select_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let tag = create_test_tag(
             &mut tx,
@@ -2493,7 +2278,7 @@ mod select_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let tag_1 = create_test_tag(
             &mut tx,
@@ -2563,7 +2348,7 @@ mod select_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let mut seen_ids = HashSet::new();
         for _ in 0..10 {
@@ -2609,10 +2394,8 @@ mod insert_tests {
     use tokio::test;
     use uuid::Uuid;
 
-    use super::{
-        insert_task_inner,
-        test_helpers::{PG_SUBSEC_PREC, create_test_tag, get_pool},
-    };
+    use super::insert_task_inner;
+    use crate::db::test_utils::{PG_SUBSEC_PREC, create_test_tag, get_pool, get_time};
     use crate::routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate};
 
     #[test]
@@ -2821,7 +2604,7 @@ mod insert_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let tag = create_test_tag(
             &mut tx,
@@ -2873,7 +2656,7 @@ mod insert_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let tag_1 = create_test_tag(
             &mut tx,
@@ -3064,9 +2847,9 @@ mod update_tests {
     use tokio::test;
     use uuid::Uuid;
 
-    use super::{
-        test_helpers::{PG_SUBSEC_PREC, create_test_tag, create_test_task, get_pool, get_task},
-        update_task_inner,
+    use super::update_task_inner;
+    use crate::db::test_utils::{
+        PG_SUBSEC_PREC, create_test_tag, create_test_task, get_pool, get_task, get_time,
     };
     use crate::{
         db::{ApplicationError, Error},
@@ -3091,11 +2874,37 @@ mod update_tests {
     }
 
     #[test]
+    async fn is_idempotent() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = Utc::now().trunc_subsecs(PG_SUBSEC_PREC);
+
+        let before_task = create_test_task(
+            &mut tx,
+            TaskCreate::default(),
+            None,
+            None,
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let task_update: TaskCreate = before_task.clone().into();
+
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), task_update).await;
+        assert!(res.is_ok());
+
+        let after_task = res.unwrap();
+        assert_eq!(after_task, before_task);
+    }
+
+    #[test]
     async fn title_only() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -3130,7 +2939,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -3168,7 +2977,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -3205,7 +3014,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -3251,7 +3060,7 @@ mod update_tests {
         // let pool = get_pool().await;
         // let mut tx = pool.begin().await.unwrap();
 
-        // let base_time = Utc::now();
+        // let base_time = get_time().await;
 
         // let datetime = Utc::now();
         // let date = datetime.date_naive();
@@ -3297,7 +3106,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -3335,7 +3144,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let tag = create_test_tag(
             &mut tx,
@@ -3387,7 +3196,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let tag_1 = create_test_tag(
             &mut tx,
@@ -3459,7 +3268,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let tag_1 = create_test_tag(
             &mut tx,
@@ -3527,7 +3336,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -3554,7 +3363,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let task = create_test_task(
             &mut tx,
@@ -3572,44 +3381,6 @@ mod update_tests {
             Err(Error::Application(ApplicationError::TaskNotFound))
         ));
     }
-
-    // TODO: uncomment when updates are finally idempotent
-    // #[test]
-    // async fn is_idempotent() {
-    //     let pool = get_pool().await;
-    //     let mut tx = pool.begin().await.unwrap();
-
-    //     let base_time = Utc::now();
-
-    //     let before_task = create_test_task(
-    //         &mut tx,
-    //         TaskCreate::default(),
-    //         None,
-    //         None,
-    //         base_time,
-    //         base_time,
-    //     )
-    //     .await;
-
-    //     let task_update: TaskCreate = before_task.clone().into();
-
-    //     let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), task_update).await;
-    //     assert!(res.is_ok());
-
-    //     let after_task = res.unwrap();
-    //     assert_eq!(before_task.id, after_task.id);
-    //     assert_eq!(before_task.title, after_task.title);
-    //     assert_eq!(before_task.notes, after_task.notes);
-    //     assert_eq!(before_task.start_on, after_task.start_on);
-    //     assert_eq!(before_task.start_at, after_task.start_at);
-    //     assert_eq!(before_task.deadline, after_task.deadline);
-    //     assert_eq!(before_task.tags, after_task.tags);
-    //     assert_eq!(before_task.completed_at, after_task.completed_at);
-    //     assert_eq!(before_task.deleted_at, after_task.deleted_at);
-    //     assert_eq!(before_task.created_at, after_task.created_at);
-    //     assert_eq!(before_task.updated_at, after_task.updated_at);
-    //     assert_eq!(before_task.created_by, after_task.created_by);
-    // }
 
     #[test]
     async fn nonexistent_task() {
@@ -3629,7 +3400,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -3679,7 +3450,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let backlog_tag = create_test_tag(
             &mut tx,
@@ -3800,7 +3571,7 @@ mod update_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -3841,14 +3612,11 @@ mod update_tests {
 
 #[cfg(test)]
 mod delete_tests {
-    use chrono::Utc;
     use tokio::test;
     use uuid::Uuid;
 
-    use super::{
-        delete_task_inner,
-        test_helpers::{create_test_task, get_pool, get_task},
-    };
+    use super::delete_task_inner;
+    use crate::db::test_utils::{create_test_task, get_pool, get_task, get_time};
     use crate::routes::models::task::Model as TaskCreate;
 
     #[test]
@@ -3856,7 +3624,7 @@ mod delete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let task = create_test_task(
             &mut tx,
@@ -3887,44 +3655,11 @@ mod delete_tests {
     }
 
     #[test]
-    async fn deleted_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = Utc::now();
-
-        let task = create_test_task(
-            &mut tx,
-            TaskCreate::default(),
-            None,
-            Some(base_time),
-            base_time,
-            base_time,
-        )
-        .await;
-
-        let res = delete_task_inner(&mut tx, task.id, Uuid::nil()).await;
-        assert!(res.is_ok());
-
-        assert_eq!(res.unwrap(), (), "deleted should return unit '()'");
-
-        let after_task = get_task(&mut tx, task.id).await;
-        assert_eq!(
-            after_task.updated_at, task.updated_at,
-            "updated_at should not be updated if the task was already deleted"
-        );
-        assert_eq!(
-            after_task.deleted_at, task.deleted_at,
-            "deleted_at should not be updated if the task was already deleted"
-        );
-    }
-
-    #[test]
     async fn is_idempotent() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let task = create_test_task(
             &mut tx,
@@ -3965,6 +3700,39 @@ mod delete_tests {
     }
 
     #[test]
+    async fn deleted_task() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = get_time().await;
+
+        let task = create_test_task(
+            &mut tx,
+            TaskCreate::default(),
+            None,
+            Some(base_time),
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = delete_task_inner(&mut tx, task.id, Uuid::nil()).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "deleted should return unit '()'");
+
+        let after_task = get_task(&mut tx, task.id).await;
+        assert_eq!(
+            after_task.updated_at, task.updated_at,
+            "updated_at should not be updated if the task was already deleted"
+        );
+        assert_eq!(
+            after_task.deleted_at, task.deleted_at,
+            "deleted_at should not be updated if the task was already deleted"
+        );
+    }
+
+    #[test]
     async fn nonexistent_task() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
@@ -3978,14 +3746,11 @@ mod delete_tests {
 
 #[cfg(test)]
 mod restore_tests {
-    use chrono::Utc;
     use tokio::test;
     use uuid::Uuid;
 
-    use super::{
-        restore_task_inner,
-        test_helpers::{create_test_task, get_pool, get_task},
-    };
+    use super::restore_task_inner;
+    use crate::db::test_utils::{create_test_task, get_pool, get_task, get_time};
     use crate::{
         db::{ApplicationError, Error},
         routes::models::task::Model as TaskCreate,
@@ -3996,7 +3761,7 @@ mod restore_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let task = create_test_task(
             &mut tx,
@@ -4024,44 +3789,11 @@ mod restore_tests {
     }
 
     #[test]
-    async fn restored_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = Utc::now();
-
-        let task = create_test_task(
-            &mut tx,
-            TaskCreate::default(),
-            None,
-            None,
-            base_time,
-            base_time,
-        )
-        .await;
-
-        let res = restore_task_inner(&mut tx, task.id, Uuid::nil()).await;
-        assert!(res.is_ok());
-
-        assert_eq!(res.unwrap(), (), "restore should return unit '()'");
-
-        let after_task = get_task(&mut tx, task.id).await;
-        assert_eq!(
-            after_task.updated_at, task.updated_at,
-            "updated_at should not be updated if the task was already restored"
-        );
-        assert_eq!(
-            after_task.deleted_at, task.deleted_at,
-            "deleted_at should not be updated if the task was already restored"
-        );
-    }
-
-    #[test]
     async fn is_idempotent() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let task = create_test_task(
             &mut tx,
@@ -4099,6 +3831,39 @@ mod restore_tests {
     }
 
     #[test]
+    async fn restored_task() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = get_time().await;
+
+        let task = create_test_task(
+            &mut tx,
+            TaskCreate::default(),
+            None,
+            None,
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = restore_task_inner(&mut tx, task.id, Uuid::nil()).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "restore should return unit '()'");
+
+        let after_task = get_task(&mut tx, task.id).await;
+        assert_eq!(
+            after_task.updated_at, task.updated_at,
+            "updated_at should not be updated if the task was already restored"
+        );
+        assert_eq!(
+            after_task.deleted_at, task.deleted_at,
+            "deleted_at should not be updated if the task was already restored"
+        );
+    }
+
+    #[test]
     async fn nonexistent_task() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
@@ -4113,14 +3878,11 @@ mod restore_tests {
 
 #[cfg(test)]
 mod complete_tests {
-    use chrono::Utc;
     use tokio::test;
     use uuid::Uuid;
 
-    use super::{
-        complete_task_inner,
-        test_helpers::{create_test_task, get_pool, get_task},
-    };
+    use super::complete_task_inner;
+    use crate::db::test_utils::{create_test_task, get_pool, get_task, get_time};
     use crate::{
         db::{ApplicationError, Error},
         routes::models::task::Model as TaskCreate,
@@ -4131,7 +3893,7 @@ mod complete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let task = create_test_task(
             &mut tx,
@@ -4162,44 +3924,11 @@ mod complete_tests {
     }
 
     #[test]
-    async fn complete_completed() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = Utc::now();
-
-        let task = create_test_task(
-            &mut tx,
-            TaskCreate::default(),
-            Some(base_time),
-            None,
-            base_time,
-            base_time,
-        )
-        .await;
-
-        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), true).await;
-        assert!(res.is_ok());
-
-        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
-
-        let after_task = get_task(&mut tx, task.id).await;
-        assert_eq!(
-            after_task.updated_at, task.updated_at,
-            "updated_at should not be updated if task was already completed"
-        );
-        assert_eq!(
-            after_task.completed_at, task.completed_at,
-            "completed_at should not be updated if task was already completed"
-        );
-    }
-
-    #[test]
     async fn complete_is_idempotent() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let task = create_test_task(
             &mut tx,
@@ -4240,11 +3969,44 @@ mod complete_tests {
     }
 
     #[test]
+    async fn complete_completed() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = get_time().await;
+
+        let task = create_test_task(
+            &mut tx,
+            TaskCreate::default(),
+            Some(base_time),
+            None,
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), true).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+
+        let after_task = get_task(&mut tx, task.id).await;
+        assert_eq!(
+            after_task.updated_at, task.updated_at,
+            "updated_at should not be updated if task was already completed"
+        );
+        assert_eq!(
+            after_task.completed_at, task.completed_at,
+            "completed_at should not be updated if task was already completed"
+        );
+    }
+
+    #[test]
     async fn complete_deleted() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         // uncomplete task
         let task = create_test_task(
@@ -4298,7 +4060,7 @@ mod complete_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let task = create_test_task(
             &mut tx,
@@ -4326,44 +4088,11 @@ mod complete_tests {
     }
 
     #[test]
-    async fn uncomplete_uncompleted() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = Utc::now();
-
-        let task = create_test_task(
-            &mut tx,
-            TaskCreate::default(),
-            None,
-            None,
-            base_time,
-            base_time,
-        )
-        .await;
-
-        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), false).await;
-        assert!(res.is_ok());
-
-        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
-
-        let after_task = get_task(&mut tx, task.id).await;
-        assert_eq!(
-            after_task.updated_at, task.updated_at,
-            "updated_at should not be updated if task was already not completed"
-        );
-        assert_eq!(
-            after_task.completed_at, task.completed_at,
-            "completed_at should not be updated if task was already not completed"
-        );
-    }
-
-    #[test]
     async fn uncomplete_is_idempotent() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         let task = create_test_task(
             &mut tx,
@@ -4401,11 +4130,44 @@ mod complete_tests {
     }
 
     #[test]
+    async fn uncomplete_uncompleted() {
+        let pool = get_pool().await;
+        let mut tx = pool.begin().await.unwrap();
+
+        let base_time = get_time().await;
+
+        let task = create_test_task(
+            &mut tx,
+            TaskCreate::default(),
+            None,
+            None,
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), false).await;
+        assert!(res.is_ok());
+
+        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+
+        let after_task = get_task(&mut tx, task.id).await;
+        assert_eq!(
+            after_task.updated_at, task.updated_at,
+            "updated_at should not be updated if task was already not completed"
+        );
+        assert_eq!(
+            after_task.completed_at, task.completed_at,
+            "completed_at should not be updated if task was already not completed"
+        );
+    }
+
+    #[test]
     async fn uncomplete_deleted() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let base_time = Utc::now();
+        let base_time = get_time().await;
 
         // uncomplete task
         let task = create_test_task(

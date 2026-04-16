@@ -195,9 +195,9 @@ async fn update_tag_inner(
     update_tag: TagCreate,
 ) -> Result<Tag> {
     let tag_opt = query_as_wrapper::<Tag>(
-        "UPDATE app.tags SET
-        (updated_at, label, category) =
-        (CURRENT_TIMESTAMP, $3, $4)
+        "UPDATE app.tags
+        SET (label, category)
+        = ($3, $4)
         WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL
         RETURNING *",
     )
