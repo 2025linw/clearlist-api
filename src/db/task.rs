@@ -578,7 +578,7 @@ async fn complete_task_inner(
 mod query_tests {
     use std::{collections::HashSet, time::Duration};
 
-    use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Utc};
+    use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
     use sqlx::PgConnection;
     use tokio::test;
     use uuid::Uuid;
@@ -643,7 +643,7 @@ mod query_tests {
         assert_eq!(num_tags, 0);
 
         // Create start date tasks
-        let base_time = Utc::now() + Duration::from_hours(1);
+        let base_time = get_time() + Duration::from_hours(1);
         for i in 1..=10 {
             let title = format!("Test Task SD{}", i);
             let date = NaiveDate::from_ymd_opt(DATE_YEAR, START_MONTH, i).unwrap();
@@ -671,7 +671,7 @@ mod query_tests {
         assert_eq!(num_tags, 0);
 
         // Create start datetime tasks
-        let base_time = Utc::now() + Duration::from_hours(2);
+        let base_time = get_time() + Duration::from_hours(2);
         for i in 1..=10 {
             let title = format!("Test Task SDt{}", i);
             let date = NaiveDateTime::new(
@@ -702,7 +702,7 @@ mod query_tests {
         assert_eq!(num_tags, 0);
 
         // Create deadline tasks
-        let base_time = Utc::now() + Duration::from_hours(3);
+        let base_time = get_time() + Duration::from_hours(3);
         for i in 1..=10 {
             let title = format!("Test Task Dl{}", i);
             let date = NaiveDate::from_ymd_opt(DATE_YEAR, DEADLINE_MONTH, i).unwrap();
@@ -730,7 +730,7 @@ mod query_tests {
         assert_eq!(num_tags, 0);
 
         // Create completed tasks
-        let base_time = Utc::now() + Duration::from_hours(4);
+        let base_time = get_time() + Duration::from_hours(4);
         for i in 1..=10 {
             let title = format!("Test Task Comp{}", i);
             let date = NaiveDate::from_ymd_opt(DATE_YEAR, DELETED_MONTH, i).unwrap();
@@ -758,7 +758,7 @@ mod query_tests {
         assert_eq!(num_tags, 0);
 
         // Create deleted tasks
-        let base_time = Utc::now() + Duration::from_hours(5);
+        let base_time = get_time() + Duration::from_hours(5);
         for i in 1..=10 {
             let title = format!("Test Task Del{}", i);
             let date = NaiveDate::from_ymd_opt(DATE_YEAR, DELETED_MONTH, i).unwrap();
@@ -786,7 +786,7 @@ mod query_tests {
         assert_eq!(num_tags, 0);
 
         // Create priority tags
-        let base_time = Utc::now() + Duration::from_hours(6);
+        let base_time = get_time() + Duration::from_hours(6);
         let low_tag = create_test_tag(
             tx,
             TagCreate {
@@ -823,7 +823,7 @@ mod query_tests {
         assert_eq!(num_tags, 3);
 
         // Create priority tasks
-        let base_time = Utc::now() + Duration::from_hours(6);
+        let base_time = get_time() + Duration::from_hours(6);
         for i in 1..=12 {
             let tag = match i {
                 1..=4 => low_tag.clone(),
@@ -852,7 +852,7 @@ mod query_tests {
         assert_eq!(num_tags, 3);
 
         // Create workflow tags
-        let base_time = Utc::now() + Duration::from_hours(6);
+        let base_time = get_time() + Duration::from_hours(6);
         let backlog_tag = create_test_tag(
             tx,
             TagCreate {
@@ -2429,7 +2429,7 @@ mod select_tests {
 
 #[cfg(test)]
 mod insert_tests {
-    use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+    use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime};
     use tokio::test;
     use uuid::Uuid;
 
@@ -2541,7 +2541,7 @@ mod insert_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let date = Utc::now().date_naive();
+        let date = get_time().date_naive();
 
         let res = insert_task_inner(
             &mut tx,
@@ -2576,7 +2576,7 @@ mod insert_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let datetime = Utc::now();
+        let datetime = get_time();
 
         let res = insert_task_inner(
             &mut tx,
@@ -2611,7 +2611,7 @@ mod insert_tests {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
-        let date = Utc::now().date_naive();
+        let date = get_time().date_naive();
 
         let res = insert_task_inner(
             &mut tx,
@@ -2897,7 +2897,7 @@ mod insert_tests {
 
 #[cfg(test)]
 mod update_tests {
-    use chrono::{Duration, NaiveDate, Utc};
+    use chrono::{Duration, NaiveDate};
     use tokio::test;
     use uuid::Uuid;
 
@@ -3041,7 +3041,7 @@ mod update_tests {
         )
         .await;
 
-        let updated_start = Utc::now().date_naive();
+        let updated_start = get_time().date_naive();
         let mut updated_task: TaskCreate = before_task.clone().into();
         updated_task.start = Some(Start::On(updated_start));
 
@@ -3078,7 +3078,7 @@ mod update_tests {
         )
         .await;
 
-        let updated_start = Utc::now();
+        let updated_start = get_time();
         let mut updated_task: TaskCreate = before_task.clone().into();
         updated_task.start = Some(Start::At(updated_start));
 
@@ -3111,7 +3111,7 @@ mod update_tests {
 
         // let base_time = get_time();
 
-        // let datetime = Utc::now();
+        // let datetime = get_time();
         // let date = datetime.date_naive();
 
         // let before_task = create_test_task(
@@ -3167,7 +3167,7 @@ mod update_tests {
         )
         .await;
 
-        let updated_deadline = Utc::now().date_naive();
+        let updated_deadline = get_time().date_naive();
         let mut updated_task: TaskCreate = before_task.clone().into();
         updated_task.deadline = Some(updated_deadline);
 
