@@ -7,6 +7,7 @@ pub mod tag;
 pub mod task;
 
 mod error;
+mod utils;
 
 #[cfg(test)]
 mod test_utils;

@@ -1,4 +1,4 @@
-use std::env;
+use std::{cmp::Ordering, env};
 
 use chrono::{DateTime, SubsecRound, Utc};
 use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
@@ -6,7 +6,7 @@ use tokio::sync::OnceCell;
 use uuid::Uuid;
 
 use crate::{
-    db::query_as_wrapper,
+    db::{query_as_wrapper, utils::sort_task_tag},
     models::{Tag, Task},
     routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate},
     run_migration,
@@ -245,4 +245,14 @@ pub async fn get_tag(conn: &mut PgConnection, tag_id: Uuid) -> Tag {
     .fetch_one(conn.as_mut())
     .await
     .unwrap()
+}
+
+/// is_sorted_by filter to check for task tag query consistency
+///
+/// Ensures that the sort order is:
+/// * label ascending
+/// * updated_at descending (if label is equal)
+/// * id ascending (if label and updated_at are equal)
+pub fn check_sort_task_tag(a: &Tag, b: &Tag) -> bool {
+    matches!(sort_task_tag(a, b), Ordering::Less)
 }

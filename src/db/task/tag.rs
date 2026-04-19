@@ -46,11 +46,11 @@ async fn query_task_tags_inner(
 
     Ok(query_as_wrapper::<Tag>(
         "SELECT tg.*
-                FROM app.tags tg
-                JOIN app.task_tags tt ON tg.id = tt.tag_id
-                JOIN app.tasks t ON tt.task_id = t.id
-                WHERE tt.task_id = $1 AND t.created_by = $2
-                ORDER BY tg.label ASC, updated_at DESC",
+        FROM app.tags tg
+        JOIN app.task_tags tt ON tg.id = tt.tag_id
+        JOIN app.tasks t ON tt.task_id = t.id
+        WHERE tt.task_id = $1 AND t.created_by = $2
+        ORDER BY tg.category ASC NULLS FIRST, tg.label ASC, tg.updated_at DESC, tg.id ASC",
     )
     .bind(task_id)
     .bind(user_id)
@@ -302,32 +302,51 @@ pub async fn delete_task_tag_inner(
 
 #[cfg(test)]
 mod query_tests {
+    use std::time::Duration;
+
     use tokio::test;
     use uuid::Uuid;
 
     use super::query_task_tags_inner;
-    use crate::db::test_utils::{create_test_tag, create_test_task, get_pool, get_time};
+    use crate::db::test_utils::{
+        check_sort_task_tag, create_test_tag, create_test_task, get_pool, get_time,
+    };
     use crate::{
-        db::{ApplicationError, Error},
-        models::Tag,
+        db::{ApplicationError, Error, utils::sort_task_tag},
         routes::models::{tag::Model as TagCreate, task::Model as TaskCreate},
     };
 
-    // async fn create_test_data(tx: &mut PgConnection) {
-    //     let mut num_tasks = 0;
-    //     let mut num_tags = 0;
-
-    //     // Create
-    // }
-
     #[test]
-    async fn base_query() {
+    async fn default_query() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
         let base_time = get_time();
 
         let tag_list = [
+            create_test_tag(
+                &mut tx,
+                TagCreate::default(),
+                base_time,
+                base_time + Duration::from_hours(3),
+            )
+            .await,
+            create_test_tag(
+                &mut tx,
+                TagCreate::default(),
+                base_time,
+                base_time + Duration::from_hours(2),
+            )
+            .await,
+            create_test_tag(
+                &mut tx,
+                TagCreate::default(),
+                base_time,
+                base_time + Duration::from_hours(1),
+            )
+            .await,
+            create_test_tag(&mut tx, TagCreate::default(), base_time, base_time).await,
+            create_test_tag(&mut tx, TagCreate::default(), base_time, base_time).await,
             create_test_tag(
                 &mut tx,
                 TagCreate {
@@ -378,9 +397,7 @@ mod query_tests {
 
         let task_tags = res.unwrap();
         assert_eq!(task_tags.len(), tag_list.len());
-        for task_tag in task_tags {
-            assert!(matches!(task_tag, Tag { .. }));
-        }
+        assert!(task_tags.is_sorted_by(check_sort_task_tag));
     }
 
     #[test]
@@ -434,6 +451,8 @@ mod query_tests {
 
         let task_tags = res.unwrap();
         assert_eq!(task_tags.len(), 1);
+        assert!(task_tags.is_sorted_by(check_sort_task_tag));
+
         assert_eq!(task_tags[0], tag);
     }
 
@@ -495,9 +514,11 @@ mod query_tests {
 
         let task_tags = res.unwrap();
         assert_eq!(task_tags.len(), tag_list.len());
-        for (task_tag, original_tag) in task_tags.iter().zip(tag_list.iter()) {
-            assert_eq!(task_tag, original_tag);
-        }
+        assert!(task_tags.is_sorted_by(check_sort_task_tag));
+
+        let mut tag_list = tag_list.clone();
+        tag_list.sort_by(sort_task_tag);
+        assert_eq!(task_tags, tag_list);
     }
 
     #[test]
@@ -1232,8 +1253,10 @@ mod update_tests {
     use uuid::Uuid;
 
     use super::update_task_tags_inner;
-    use crate::db::test_utils::{create_test_tag, create_test_task, get_pool, get_task, get_time};
-    use crate::db::{ApplicationError, Error};
+    use crate::db::test_utils::{
+        check_sort_task_tag, create_test_tag, create_test_task, get_pool, get_task, get_time,
+    };
+    use crate::db::{ApplicationError, Error, utils::sort_task_tag};
     use crate::models::Tag;
     use crate::routes::models::{tag::Model as TagCreate, task::Model as TaskCreate};
 
@@ -1307,8 +1330,13 @@ mod update_tests {
         .await;
         assert!(res.is_ok());
 
-        let tags = res.unwrap();
-        assert_eq!(tags, tag_list);
+        let task_tags = res.unwrap();
+        assert_eq!(task_tags.len(), tag_list.len());
+        assert!(task_tags.is_sorted_by(check_sort_task_tag));
+
+        let mut tag_list = tag_list.clone();
+        tag_list.sort_by(sort_task_tag);
+        assert_eq!(task_tags, tag_list);
 
         let res = update_task_tags_inner(
             &mut tx,
@@ -1319,8 +1347,13 @@ mod update_tests {
         .await;
         assert!(res.is_ok());
 
-        let tags = res.unwrap();
-        assert_eq!(tags, tag_list);
+        let task_tags = res.unwrap();
+        assert_eq!(task_tags.len(), tag_list.len());
+        assert!(task_tags.is_sorted_by(check_sort_task_tag));
+
+        let mut tag_list = tag_list.clone();
+        tag_list.sort_by(sort_task_tag);
+        assert_eq!(task_tags, tag_list);
     }
 
     #[test]
