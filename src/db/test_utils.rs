@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, env};
+use std::{cmp::Ordering, collections::HashSet, env};
 
 use chrono::{DateTime, SubsecRound, Utc};
 use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
@@ -6,7 +6,7 @@ use tokio::sync::OnceCell;
 use uuid::Uuid;
 
 use crate::{
-    db::{query_as_wrapper, utils::sort_task_tag},
+    db::{query_as_wrapper, utils::order_task_tag},
     models::{Tag, Task},
     routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate},
     run_migration,
@@ -61,6 +61,7 @@ pub async fn create_test_task(
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 ) -> Task {
+    // Add task
     let task_id = sqlx::query_scalar(
         "INSERT INTO app.tasks (title, notes, start_dt, has_time, deadline, created_by)
             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
@@ -131,8 +132,8 @@ pub async fn create_test_task(
             .tags
             .iter()
             .map(|tag| tag.id)
-            .collect::<Vec<Uuid>>(),
-        task.tags,
+            .collect::<HashSet<Uuid>>(),
+        task.tags.iter().copied().collect::<HashSet<Uuid>>(),
         "tags don't match input"
     );
     assert_eq!(
@@ -186,6 +187,7 @@ pub async fn get_task(conn: &mut PgConnection, task_id: Uuid) -> Task {
     .fetch_all(conn.as_mut())
     .await
     .unwrap();
+    task.tags.sort_by(order_task_tag);
 
     task
 }
@@ -254,5 +256,5 @@ pub async fn get_tag(conn: &mut PgConnection, tag_id: Uuid) -> Tag {
 /// * updated_at descending (if label is equal)
 /// * id ascending (if label and updated_at are equal)
 pub fn check_sort_task_tag(a: &Tag, b: &Tag) -> bool {
-    matches!(sort_task_tag(a, b), Ordering::Less)
+    matches!(order_task_tag(a, b), Ordering::Less)
 }

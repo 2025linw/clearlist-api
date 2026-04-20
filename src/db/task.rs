@@ -14,13 +14,16 @@ use super::{
     error::ApplicationError,
     filters::{DateFilter, SQLCmp, TaskSort},
     query_as_wrapper,
-    task::tag::update_task_tags_inner,
 };
 use crate::{
     com::constants::{DEFAULT_LIMIT, MAX_LIMIT},
-    db::utils::sort_task_tag,
+    db::utils::order_task_tag,
     models::{Tag, Task, TaskTag},
     routes::models::{SortOrder, task::Model as TaskCreate},
+};
+use tag::{
+    insert_task_tags_inner_unchecked, query_task_tags_inner_unchecked,
+    update_task_tags_inner_unchecked,
 };
 
 /// Options for querying tasks in database
@@ -203,7 +206,7 @@ async fn query_tasks_inner(
     for task in tasks.iter_mut() {
         if task_tag_map.contains_key(&task.id) {
             task.tags = task_tag_map.remove(&task.id).unwrap();
-            task.tags.sort_by(sort_task_tag);
+            task.tags.sort_by(order_task_tag);
         }
     }
 
@@ -252,17 +255,7 @@ async fn select_task_inner(
     match task_row_opt {
         None => Ok(None),
         Some(mut task_row) => {
-            let tags = query_as_wrapper::<Tag>(
-                "SELECT tg.*
-                FROM app.task_tags tt
-                JOIN app.tags tg ON tt.tag_id = tg.id
-                WHERE tt.task_id = $1",
-            )
-            .bind(task_id)
-            .fetch_all(conn.as_mut())
-            .await?;
-
-            task_row.tags = tags;
+            task_row.tags = query_task_tags_inner_unchecked(conn, task_row.id, user_id).await?;
 
             Ok(Some(task_row))
         }
@@ -336,7 +329,7 @@ async fn insert_task_inner(
 
     if !insert_task.tags.is_empty() {
         task_row.tags =
-            update_task_tags_inner(conn, task_row.id, user_id, insert_task.tags).await?;
+            insert_task_tags_inner_unchecked(conn, task_row.id, user_id, insert_task.tags).await?;
     }
 
     Ok(task_row)
@@ -411,7 +404,9 @@ async fn update_task_inner(
         return Err(Error::Application(ApplicationError::TaskNotFound));
     }
 
-    if let Err(err) = update_task_tags_inner(conn, task_id, user_id, update_task.tags).await {
+    if let Err(err) =
+        update_task_tags_inner_unchecked(conn, task_id, user_id, update_task.tags).await
+    {
         assert!(!matches!(
             err,
             Error::Application(ApplicationError::TaskNotFound)
@@ -595,19 +590,20 @@ async fn complete_task_inner(
 }
 
 #[cfg(test)]
-mod query_tests {
+mod query {
     use std::{collections::HashSet, time::Duration};
 
-    use chrono::{DateTime, Days, NaiveDate, Utc};
-
+    use chrono::Days;
     use tokio::test;
     use uuid::Uuid;
 
     use super::{TaskQueryOptions, query_tasks_inner};
-    use crate::db::test_utils::{create_test_tag, create_test_task, get_pool, get_time};
     use crate::{
         com::constants::MAX_LIMIT,
-        db::filters::{DateBound, DateFilter, TaskSort},
+        db::{
+            filters::{DateBound, DateFilter, TaskSort},
+            test_utils::{create_test_tag, create_test_task, get_pool, get_time},
+        },
         routes::models::{SortOrder, Start, tag::Model as TagCreate, task::Model as TaskCreate},
     };
 
@@ -656,6 +652,24 @@ mod query_tests {
                 base_time + Duration::from_hours(1),
             )
             .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time,
+                base_time + Duration::from_hours(2),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time,
+                base_time + Duration::from_hours(2),
+            )
+            .await,
         ];
 
         let opts = TaskQueryOptions::default();
@@ -668,23 +682,14 @@ mod query_tests {
             assert!(
                 tasks.is_sorted_by(|a, b| {
                     if a.updated_at > b.updated_at {
-                        // updated_at is descending
                         true
-                    } else if a.updated_at < b.updated_at {
-                        // updated_at not descending
-                        false
                     } else {
-                        // updated_at equal; check id is ascending
-                        assert_ne!(a.id, b.id, "no duplicate Tasks should have been returned");
+                        assert_ne!(a.id, b.id, "no duplicate tasks should have been returned");
 
                         a.id < b.id
                     }
                 }),
-                "default query should have returned with updated_at descending, with id ascending as fallback"
-            );
-            assert!(
-                !tasks.iter().any(|task| task.deleted_at.is_some()),
-                "query should not return any deleted Tasks"
+                "default query should have returned with updated_at descending, with id ascending as tiebreaker"
             );
         }
     }
@@ -749,23 +754,14 @@ mod query_tests {
             assert!(
                 tasks.is_sorted_by(|a, b| {
                     if a.updated_at < b.updated_at {
-                        // updated_at ascending
                         true
-                    } else if a.updated_at > b.updated_at {
-                        // updated_at not ascending
-                        false
                     } else {
-                        // updated_at is equal; check id is ascending
-                        assert_ne!(a.id, b.id, "no duplicate Tasks should have been returned");
+                        assert_ne!(a.id, b.id, "no duplicate tasks should have been returned");
 
                         a.id < b.id
                     }
                 }),
-                "expected sort by updated_at ascending, with id ascending as fallback"
-            );
-            assert!(
-                !tasks.iter().any(|task| task.deleted_at.is_some()),
-                "query should not return any deleted Tasks"
+                "expected sort by updated_at ascending, with id ascending as tiebreaker"
             );
         }
     }
@@ -803,7 +799,7 @@ mod query_tests {
                 None,
                 None,
                 base_time + Duration::from_hours(1),
-                base_time + Duration::from_hours(2),
+                base_time + Duration::from_hours(1),
             )
             .await,
             create_test_task(
@@ -812,6 +808,24 @@ mod query_tests {
                 None,
                 None,
                 base_time + Duration::from_hours(1),
+                base_time + Duration::from_hours(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time + Duration::from_hours(2),
+                base_time + Duration::from_hours(2),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time + Duration::from_hours(2),
                 base_time + Duration::from_hours(2),
             )
             .await,
@@ -830,23 +844,14 @@ mod query_tests {
             assert!(
                 tasks.is_sorted_by(|a, b| {
                     if a.created_at > b.created_at {
-                        // created_at descending
                         true
-                    } else if a.created_at < b.created_at {
-                        // created_at not descending
-                        false
                     } else {
-                        // created_at is equal; check id is ascending
-                        assert_ne!(a.id, b.id, "no duplicate Tasks should have been returned");
+                        assert_ne!(a.id, b.id, "no duplicate tasks should have been returned");
 
                         a.id < b.id
                     }
                 }),
-                "expected sort by created_at descending, with id ascending as fallback"
-            );
-            assert!(
-                !tasks.iter().any(|task| task.deleted_at.is_some()),
-                "query should not return any deleted Tasks"
+                "expected sort by created_at descending, with id ascending as tiebreaker"
             );
         }
     }
@@ -892,6 +897,24 @@ mod query_tests {
                 TaskCreate::default(),
                 None,
                 None,
+                base_time + Duration::from_hours(1),
+                base_time + Duration::from_hours(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time + Duration::from_hours(2),
+                base_time + Duration::from_hours(2),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
                 base_time + Duration::from_hours(2),
                 base_time + Duration::from_hours(2),
             )
@@ -911,23 +934,14 @@ mod query_tests {
             assert!(
                 tasks.is_sorted_by(|a, b| {
                     if a.created_at < b.created_at {
-                        // created_at ascending
                         true
-                    } else if a.created_at > b.created_at {
-                        // created_at not ascending
-                        false
                     } else {
-                        // created_at is equal; check id is ascending
-                        assert_ne!(a.id, b.id, "no duplicate Tasks should have been returned");
+                        assert_ne!(a.id, b.id, "no duplicate tasks should have been returned");
 
                         a.id < b.id
                     }
                 }),
-                "expected sort by created_at ascending, with id ascending as fallback"
-            );
-            assert!(
-                !tasks.iter().any(|task| task.deleted_at.is_some()),
-                "query should not return any deleted Tasks"
+                "expected sort by created_at ascending, with id ascending as tiebreaker"
             );
         }
     }
@@ -941,10 +955,48 @@ mod query_tests {
 
         // create test data
         let _test_tasks = [
+            // Blank title
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            // Task A
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    title: String::new(),
+                    title: "Task A".to_string(),
                     ..Default::default()
                 },
                 None,
@@ -956,7 +1008,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    title: String::new(),
+                    title: "Task A".to_string(),
                     ..Default::default()
                 },
                 None,
@@ -968,7 +1020,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    title: String::new(),
+                    title: "Task A".to_string(),
                     ..Default::default()
                 },
                 None,
@@ -980,19 +1032,20 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    title: String::new(),
+                    title: "Task A".to_string(),
                     ..Default::default()
                 },
                 None,
                 None,
                 base_time,
-                base_time + Duration::from_hours(2),
+                base_time + Duration::from_hours(1),
             )
             .await,
+            // Task B
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    title: "Task A".to_string(),
+                    title: "Task B".to_string(),
                     ..Default::default()
                 },
                 None,
@@ -1011,6 +1064,30 @@ mod query_tests {
                 None,
                 base_time,
                 base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    title: "Task B".to_string(),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Duration::from_hours(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    title: "Task B".to_string(),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Duration::from_hours(1),
             )
             .await,
         ];
@@ -1028,28 +1105,24 @@ mod query_tests {
             assert!(
                 tasks.is_sorted_by(|a, b| {
                     if a.title < b.title {
-                        // title ascending
                         true
                     } else if a.title > b.title {
-                        // title not ascending
                         false
                     } else if a.updated_at > b.updated_at {
-                        // created_at is equal; update_at is descending
                         true
                     } else if a.updated_at < b.updated_at {
-                        // created_at is equal; update_at is not descending
                         false
                     } else {
-                        assert_ne!(a.id, b.id, "no duplicate Tasks should have been returned");
+                        assert_ne!(a.id, b.id, "no duplicate tasks should have been returned");
 
                         a.id < b.id
                     }
                 }),
-                "expected sort by title ascending, with updated_at descending then id ascending as fallbacks"
+                "expected sort by title ascending, with updated_at descending then id ascending as tiebreakers"
             );
             assert!(
                 !tasks.iter().any(|task| task.deleted_at.is_some()),
-                "query should not return any deleted Tasks"
+                "query should not return any deleted tasks"
             );
         }
     }
@@ -1063,10 +1136,48 @@ mod query_tests {
 
         // create test data
         let _test_tasks = [
+            // Blank title
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            // Task A
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    title: String::new(),
+                    title: "Task A".to_string(),
                     ..Default::default()
                 },
                 None,
@@ -1078,7 +1189,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    title: String::new(),
+                    title: "Task A".to_string(),
                     ..Default::default()
                 },
                 None,
@@ -1090,7 +1201,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    title: String::new(),
+                    title: "Task A".to_string(),
                     ..Default::default()
                 },
                 None,
@@ -1102,19 +1213,20 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    title: String::new(),
+                    title: "Task A".to_string(),
                     ..Default::default()
                 },
                 None,
                 None,
                 base_time,
-                base_time + Duration::from_hours(2),
+                base_time + Duration::from_hours(1),
             )
             .await,
+            // Task B
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    title: "Task A".to_string(),
+                    title: "Task B".to_string(),
                     ..Default::default()
                 },
                 None,
@@ -1135,6 +1247,30 @@ mod query_tests {
                 base_time,
             )
             .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    title: "Task B".to_string(),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Duration::from_hours(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    title: "Task B".to_string(),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Duration::from_hours(1),
+            )
+            .await,
         ];
 
         let opts = TaskQueryOptions {
@@ -1150,28 +1286,24 @@ mod query_tests {
             assert!(
                 tasks.is_sorted_by(|a, b| {
                     if a.title > b.title {
-                        // title descending
                         true
                     } else if a.title < b.title {
-                        // title not descending
                         false
                     } else if a.updated_at > b.updated_at {
-                        // created_at is equal; update_at is descending
                         true
                     } else if a.updated_at < b.updated_at {
-                        // created_at is equal; update_at is not descending
                         false
                     } else {
-                        assert_ne!(a.id, b.id, "no duplicate Tasks should have been returned");
+                        assert_ne!(a.id, b.id, "no duplicate tasks should have been returned");
 
                         a.id < b.id
                     }
                 }),
-                "expected sort by title descending, with updated_at descending then id ascending as fallbacks"
+                "expected sort by title descending, with updated_at descending then id ascending as tiebreakers"
             );
             assert!(
                 !tasks.iter().any(|task| task.deleted_at.is_some()),
-                "query should not return any deleted Tasks"
+                "query should not return any deleted tasks"
             );
         }
     }
@@ -1185,6 +1317,7 @@ mod query_tests {
 
         // create test data
         let _test_tasks = [
+            // No start
             create_test_task(
                 &mut tx,
                 TaskCreate::default(),
@@ -1205,62 +1338,11 @@ mod query_tests {
             .await,
             create_test_task(
                 &mut tx,
-                TaskCreate {
-                    start: Some(Start::On(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap())),
-                    ..Default::default()
-                },
+                TaskCreate::default(),
                 None,
                 None,
                 base_time,
-                base_time,
-            )
-            .await,
-            create_test_task(
-                &mut tx,
-                TaskCreate {
-                    start: Some(Start::On(NaiveDate::from_ymd_opt(2026, 1, 2).unwrap())),
-                    ..Default::default()
-                },
-                None,
-                None,
-                base_time,
-                base_time,
-            )
-            .await,
-            create_test_task(
-                &mut tx,
-                TaskCreate {
-                    start: Some(Start::At(
-                        NaiveDate::from_ymd_opt(2026, 1, 1)
-                            .unwrap()
-                            .and_hms_opt(0, 0, 0)
-                            .unwrap()
-                            .and_utc(),
-                    )),
-                    ..Default::default()
-                },
-                None,
-                None,
-                base_time,
-                base_time,
-            )
-            .await,
-            create_test_task(
-                &mut tx,
-                TaskCreate {
-                    start: Some(Start::At(
-                        NaiveDate::from_ymd_opt(2026, 1, 2)
-                            .unwrap()
-                            .and_hms_opt(0, 0, 0)
-                            .unwrap()
-                            .and_utc(),
-                    )),
-                    ..Default::default()
-                },
-                None,
-                None,
-                base_time,
-                base_time,
+                base_time + Days::new(1),
             )
             .await,
             create_test_task(
@@ -1269,16 +1351,203 @@ mod query_tests {
                 None,
                 None,
                 base_time,
-                base_time + Duration::from_hours(1),
+                base_time + Days::new(1),
+            )
+            .await,
+            // Start On 1
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive())),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
             )
             .await,
             create_test_task(
                 &mut tx,
-                TaskCreate::default(),
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive())),
+                    ..Default::default()
+                },
                 None,
                 None,
                 base_time,
-                base_time + Duration::from_hours(2),
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive())),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive())),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            // Start At 1
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            // Start On 2
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive() + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive() + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive() + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive() + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            // Start At 2
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
             )
             .await,
         ];
@@ -1296,8 +1565,20 @@ mod query_tests {
             let mut seen_nulls = false;
             assert!(
                 tasks.is_sorted_by(|a, b| {
-                    let start_a = a.start_dt.map(|dt| dt.date_naive());
-                    let start_b = b.start_dt.map(|dt| dt.date_naive());
+                    let start_a = a.start_dt.map(|dt| {
+                        if a.has_time {
+                            dt
+                        } else {
+                            dt.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc()
+                        }
+                    });
+                    let start_b = b.start_dt.map(|dt| {
+                        if b.has_time {
+                            dt
+                        } else {
+                            dt.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc()
+                        }
+                    });
 
                     if seen_nulls && (start_a.is_some() || start_b.is_some()) {
                         panic!("found dates within NULL section of sorted tasks");
@@ -1311,32 +1592,24 @@ mod query_tests {
                     }
 
                     if start_a < start_b {
-                        // start ascending
                         true
                     } else if start_a > start_b {
-                        // start not ascending
                         false
                     } else if a.updated_at > b.updated_at {
-                        // start is equal; update_at is descending
                         true
                     } else if a.updated_at < b.updated_at {
-                        // start is equal; update_at is not descending
                         false
                     } else {
-                        assert_ne!(a.id, b.id, "no duplicate Tasks should have been returned");
+                        assert_ne!(a.id, b.id, "no duplicate tasks should have been returned");
 
                         a.id < b.id
                     }
                 }),
-                "expected sort by start ascending, with updated_at descending then id ascending as fallbacks: {:?}",
-                tasks
-                    .iter()
-                    .map(|task| task.start_dt)
-                    .collect::<Vec<Option<DateTime<Utc>>>>()
+                "expected sort by start ascending, with updated_at descending then id ascending as tiebreakers",
             );
             assert!(
                 !tasks.iter().any(|task| task.deleted_at.is_some()),
-                "query should not return any deleted Tasks"
+                "query should not return any deleted tasks"
             );
         }
     }
@@ -1350,6 +1623,7 @@ mod query_tests {
 
         // create test data
         let _test_tasks = [
+            // No start
             create_test_task(
                 &mut tx,
                 TaskCreate::default(),
@@ -1370,62 +1644,11 @@ mod query_tests {
             .await,
             create_test_task(
                 &mut tx,
-                TaskCreate {
-                    start: Some(Start::On(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap())),
-                    ..Default::default()
-                },
+                TaskCreate::default(),
                 None,
                 None,
                 base_time,
-                base_time,
-            )
-            .await,
-            create_test_task(
-                &mut tx,
-                TaskCreate {
-                    start: Some(Start::On(NaiveDate::from_ymd_opt(2026, 1, 2).unwrap())),
-                    ..Default::default()
-                },
-                None,
-                None,
-                base_time,
-                base_time,
-            )
-            .await,
-            create_test_task(
-                &mut tx,
-                TaskCreate {
-                    start: Some(Start::At(
-                        NaiveDate::from_ymd_opt(2026, 1, 1)
-                            .unwrap()
-                            .and_hms_opt(0, 0, 0)
-                            .unwrap()
-                            .and_utc(),
-                    )),
-                    ..Default::default()
-                },
-                None,
-                None,
-                base_time,
-                base_time,
-            )
-            .await,
-            create_test_task(
-                &mut tx,
-                TaskCreate {
-                    start: Some(Start::At(
-                        NaiveDate::from_ymd_opt(2026, 1, 2)
-                            .unwrap()
-                            .and_hms_opt(0, 0, 0)
-                            .unwrap()
-                            .and_utc(),
-                    )),
-                    ..Default::default()
-                },
-                None,
-                None,
-                base_time,
-                base_time,
+                base_time + Days::new(1),
             )
             .await,
             create_test_task(
@@ -1434,16 +1657,203 @@ mod query_tests {
                 None,
                 None,
                 base_time,
-                base_time + Duration::from_hours(1),
+                base_time + Days::new(1),
+            )
+            .await,
+            // Start On 1
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive())),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
             )
             .await,
             create_test_task(
                 &mut tx,
-                TaskCreate::default(),
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive())),
+                    ..Default::default()
+                },
                 None,
                 None,
                 base_time,
-                base_time + Duration::from_hours(2),
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive())),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive())),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            // Start At 1
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            // Start On 2
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive() + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive() + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive() + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::On(base_time.date_naive() + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            // Start At 2
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    start: Some(Start::At(base_time + Days::new(1))),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
             )
             .await,
         ];
@@ -1461,8 +1871,20 @@ mod query_tests {
             let mut seen_nulls = false;
             assert!(
                 tasks.is_sorted_by(|a, b| {
-                    let start_a = a.start_dt.map(|dt| dt.date_naive());
-                    let start_b = b.start_dt.map(|dt| dt.date_naive());
+                    let start_a = a.start_dt.map(|dt| {
+                        if a.has_time {
+                            dt
+                        } else {
+                            dt.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc()
+                        }
+                    });
+                    let start_b = b.start_dt.map(|dt| {
+                        if b.has_time {
+                            dt
+                        } else {
+                            dt.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc()
+                        }
+                    });
 
                     if seen_nulls && (start_a.is_some() || start_b.is_some()) {
                         panic!("found dates within NULL section of sorted tasks");
@@ -1476,28 +1898,24 @@ mod query_tests {
                     }
 
                     if start_a > start_b {
-                        // start descending
                         true
                     } else if start_a < start_b {
-                        // start not descending
                         false
                     } else if a.updated_at > b.updated_at {
-                        // start is equal; update_at is descending
                         true
                     } else if a.updated_at < b.updated_at {
-                        // start is equal; update_at is not descending
                         false
                     } else {
-                        assert_ne!(a.id, b.id, "no duplicate Tasks should have been returned");
+                        assert_ne!(a.id, b.id, "no duplicate tasks should have been returned");
 
                         a.id < b.id
                     }
                 }),
-                "expected sort by start descending, with updated_at descending then id ascending as fallbacks"
+                "expected sort by start descending, with updated_at descending then id ascending as tiebreakers"
             );
             assert!(
                 !tasks.iter().any(|task| task.deleted_at.is_some()),
-                "query should not return any deleted Tasks"
+                "query should not return any deleted tasks"
             );
         }
     }
@@ -1511,6 +1929,7 @@ mod query_tests {
 
         // create test data
         let _test_tasks = [
+            // No deadline
             create_test_task(
                 &mut tx,
                 TaskCreate::default(),
@@ -1529,10 +1948,29 @@ mod query_tests {
                 base_time,
             )
             .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            // Deadline 1
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()),
+                    deadline: Some(base_time.date_naive()),
                     ..Default::default()
                 },
                 None,
@@ -1544,7 +1982,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some(NaiveDate::from_ymd_opt(2026, 1, 2).unwrap()),
+                    deadline: Some(base_time.date_naive()),
                     ..Default::default()
                 },
                 None,
@@ -1555,20 +1993,75 @@ mod query_tests {
             .await,
             create_test_task(
                 &mut tx,
-                TaskCreate::default(),
+                TaskCreate {
+                    deadline: Some(base_time.date_naive()),
+                    ..Default::default()
+                },
                 None,
                 None,
                 base_time,
-                base_time + Duration::from_hours(1),
+                base_time + Days::new(1),
             )
             .await,
             create_test_task(
                 &mut tx,
-                TaskCreate::default(),
+                TaskCreate {
+                    deadline: Some(base_time.date_naive()),
+                    ..Default::default()
+                },
                 None,
                 None,
                 base_time,
-                base_time + Duration::from_hours(2),
+                base_time + Days::new(1),
+            )
+            .await,
+            // Deadline 2
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
             )
             .await,
         ];
@@ -1598,28 +2091,24 @@ mod query_tests {
                     }
 
                     if a.deadline < b.deadline {
-                        // daedline ascending
                         true
                     } else if a.deadline > b.deadline {
-                        // deadline not ascending
                         false
                     } else if a.updated_at > b.updated_at {
-                        // deadline is equal; update_at is descending
                         true
                     } else if a.updated_at < b.updated_at {
-                        // deadline is equal; update_at is not descending
                         false
                     } else {
-                        assert_ne!(a.id, b.id, "no duplicate Tasks should have been returned");
+                        assert_ne!(a.id, b.id, "no duplicate tasks should have been returned");
 
                         a.id < b.id
                     }
                 }),
-                "expected sort by deadline ascending, with updated_at descending then id ascending as fallbacks",
+                "expected sort by deadline ascending, with updated_at descending then id ascending as tiebreakers",
             );
             assert!(
                 !tasks.iter().any(|task| task.deleted_at.is_some()),
-                "query should not return any deleted Tasks"
+                "query should not return any deleted tasks"
             );
         }
     }
@@ -1633,6 +2122,7 @@ mod query_tests {
 
         // create test data
         let _test_tasks = [
+            // No deadline
             create_test_task(
                 &mut tx,
                 TaskCreate::default(),
@@ -1651,10 +2141,29 @@ mod query_tests {
                 base_time,
             )
             .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate::default(),
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            // Deadline 1
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()),
+                    deadline: Some(base_time.date_naive()),
                     ..Default::default()
                 },
                 None,
@@ -1666,7 +2175,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some(NaiveDate::from_ymd_opt(2026, 1, 2).unwrap()),
+                    deadline: Some(base_time.date_naive()),
                     ..Default::default()
                 },
                 None,
@@ -1677,20 +2186,75 @@ mod query_tests {
             .await,
             create_test_task(
                 &mut tx,
-                TaskCreate::default(),
+                TaskCreate {
+                    deadline: Some(base_time.date_naive()),
+                    ..Default::default()
+                },
                 None,
                 None,
                 base_time,
-                base_time + Duration::from_hours(1),
+                base_time + Days::new(1),
             )
             .await,
             create_test_task(
                 &mut tx,
-                TaskCreate::default(),
+                TaskCreate {
+                    deadline: Some(base_time.date_naive()),
+                    ..Default::default()
+                },
                 None,
                 None,
                 base_time,
-                base_time + Duration::from_hours(2),
+                base_time + Days::new(1),
+            )
+            .await,
+            // Deadline 2
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time,
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
+            )
+            .await,
+            create_test_task(
+                &mut tx,
+                TaskCreate {
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                base_time,
+                base_time + Days::new(1),
             )
             .await,
         ];
@@ -1720,28 +2284,24 @@ mod query_tests {
                     }
 
                     if a.deadline > b.deadline {
-                        // daedline descending
                         true
                     } else if a.deadline < b.deadline {
-                        // deadline not descending
                         false
                     } else if a.updated_at > b.updated_at {
-                        // deadline is equal; update_at is descending
                         true
                     } else if a.updated_at < b.updated_at {
-                        // deadline is equal; update_at is not descending
                         false
                     } else {
-                        assert_ne!(a.id, b.id, "no duplicate Tasks should have been returned");
+                        assert_ne!(a.id, b.id, "no duplicate tasks should have been returned");
 
                         a.id < b.id
                     }
                 }),
-                "expected sort by deadline descending, with updated_at descending then id ascending as fallbacks",
+                "expected sort by deadline descending, with updated_at descending then id ascending as tiebreakers",
             );
             assert!(
                 !tasks.iter().any(|task| task.deleted_at.is_some()),
-                "query should not return any deleted Tasks"
+                "query should not return any deleted tasks"
             );
         }
     }
@@ -1766,9 +2326,9 @@ mod query_tests {
             .await;
         }
 
-        for i in 1..=50 {
+        for limit in 1..=50 {
             let opts = TaskQueryOptions {
-                limit: Some(i),
+                limit,
                 ..Default::default()
             };
 
@@ -1779,9 +2339,9 @@ mod query_tests {
 
                 assert_eq!(
                     tasks.len(),
-                    i as usize,
+                    limit as usize,
                     "limit does not match query filter value: {}",
-                    i
+                    limit
                 );
             }
         }
@@ -1808,7 +2368,7 @@ mod query_tests {
         }
 
         let opts = TaskQueryOptions {
-            limit: Some(0),
+            limit: 0,
             ..Default::default()
         };
 
@@ -1842,7 +2402,7 @@ mod query_tests {
         }
 
         let opts = TaskQueryOptions {
-            limit: Some(i64::MAX),
+            limit: i64::MAX,
             ..Default::default()
         };
 
@@ -1881,7 +2441,7 @@ mod query_tests {
         }
 
         let opts = TaskQueryOptions {
-            limit: Some(-1),
+            limit: -1,
             ..Default::default()
         };
 
@@ -1894,7 +2454,7 @@ mod query_tests {
         }
 
         let opts = TaskQueryOptions {
-            limit: Some(-50),
+            limit: -50,
             ..Default::default()
         };
 
@@ -1907,7 +2467,7 @@ mod query_tests {
         }
 
         let opts = TaskQueryOptions {
-            limit: Some(i64::MIN),
+            limit: i64::MIN,
             ..Default::default()
         };
 
@@ -1941,7 +2501,7 @@ mod query_tests {
         }
 
         let opts = TaskQueryOptions {
-            limit: Some(i64::MAX),
+            limit: i64::MAX,
             ..Default::default()
         };
 
@@ -1986,8 +2546,8 @@ mod query_tests {
         let mut seen = HashSet::new();
         loop {
             let opts = TaskQueryOptions {
-                limit: Some(limit),
-                offset: Some(i * limit),
+                limit,
+                offset: i * limit,
                 ..Default::default()
             };
 
@@ -2001,7 +2561,11 @@ mod query_tests {
                     );
                 }
 
-                assert!(tasks.len() <= limit as usize);
+                assert!(
+                    tasks.len() <= limit as usize,
+                    "no more than `limit` tags should have been returned: found {}",
+                    tasks.len()
+                );
                 for task in &tasks {
                     assert!(seen.insert(task.id), "duplicate task encountered");
                 }
@@ -2017,8 +2581,8 @@ mod query_tests {
 
         // perform one more query to ensure that the end has been reached
         let opts = TaskQueryOptions {
-            limit: Some(limit),
-            offset: Some(i * limit),
+            limit,
+            offset: i * limit,
             ..Default::default()
         };
 
@@ -2050,7 +2614,7 @@ mod query_tests {
         }
 
         let opts = TaskQueryOptions {
-            offset: Some(i64::MAX),
+            offset: i64::MAX,
             ..Default::default()
         };
 
@@ -2079,7 +2643,7 @@ mod query_tests {
         }
 
         let opts = TaskQueryOptions {
-            offset: Some(-1),
+            offset: -1,
             ..Default::default()
         };
 
@@ -2089,7 +2653,7 @@ mod query_tests {
         assert!(!tasks_1.is_empty(), "must have data to test on");
 
         let opts = TaskQueryOptions {
-            offset: Some(-50),
+            offset: -50,
             ..Default::default()
         };
 
@@ -2102,7 +2666,7 @@ mod query_tests {
         );
 
         let opts = TaskQueryOptions {
-            offset: Some(i64::MIN),
+            offset: i64::MIN,
             ..Default::default()
         };
 
@@ -2116,7 +2680,7 @@ mod query_tests {
     }
 
     #[test]
-    async fn offset_without_limits() {
+    async fn offset_without_limit() {
         let pool = get_pool().await;
         let mut tx = pool.begin().await.unwrap();
 
@@ -2136,7 +2700,7 @@ mod query_tests {
         }
 
         let opts = TaskQueryOptions {
-            offset: Some(20),
+            offset: 20,
             ..Default::default()
         };
 
@@ -2146,7 +2710,7 @@ mod query_tests {
             assert!(!tasks.is_empty(), "must have data to test on");
 
             let opts = TaskQueryOptions {
-                limit: Some(70),
+                limit: 70,
                 ..Default::default()
             };
 
@@ -2372,7 +2936,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    start: Some(Start::On((base_time - Days::new(1)).date_naive())),
+                    start: Some(Start::On(base_time.date_naive() - Days::new(1))),
                     ..Default::default()
                 },
                 None,
@@ -2420,7 +2984,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    start: Some(Start::On((base_time + Days::new(1)).date_naive())),
+                    start: Some(Start::On(base_time.date_naive() + Days::new(1))),
                     ..Default::default()
                 },
                 None,
@@ -2505,7 +3069,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    start: Some(Start::On((base_time - Days::new(1)).date_naive())),
+                    start: Some(Start::On(base_time.date_naive() - Days::new(1))),
                     ..Default::default()
                 },
                 None,
@@ -2553,7 +3117,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    start: Some(Start::On((base_time + Days::new(1)).date_naive())),
+                    start: Some(Start::On(base_time.date_naive() + Days::new(1))),
                     ..Default::default()
                 },
                 None,
@@ -2620,7 +3184,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    start: Some(Start::On((base_time - Days::new(1)).date_naive())),
+                    start: Some(Start::On(base_time.date_naive() - Days::new(1))),
                     ..Default::default()
                 },
                 None,
@@ -2668,7 +3232,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    start: Some(Start::On((base_time + Days::new(1)).date_naive())),
+                    start: Some(Start::On(base_time.date_naive() + Days::new(1))),
                     ..Default::default()
                 },
                 None,
@@ -2735,7 +3299,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    start: Some(Start::On((base_time - Days::new(1)).date_naive())),
+                    start: Some(Start::On(base_time.date_naive() - Days::new(1))),
                     ..Default::default()
                 },
                 None,
@@ -2783,7 +3347,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    start: Some(Start::On((base_time + Days::new(1)).date_naive())),
+                    start: Some(Start::On(base_time.date_naive() + Days::new(1))),
                     ..Default::default()
                 },
                 None,
@@ -2850,7 +3414,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    start: Some(Start::On((base_time - Days::new(1)).date_naive())),
+                    start: Some(Start::On(base_time.date_naive() - Days::new(1))),
                     ..Default::default()
                 },
                 None,
@@ -2898,7 +3462,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    start: Some(Start::On((base_time + Days::new(1)).date_naive())),
+                    start: Some(Start::On(base_time.date_naive() + Days::new(1))),
                     ..Default::default()
                 },
                 None,
@@ -2989,7 +3553,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    start: Some(Start::On((base_time - Days::new(1)).date_naive())),
+                    start: Some(Start::On(base_time.date_naive() - Days::new(1))),
                     ..Default::default()
                 },
                 None,
@@ -3037,7 +3601,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    start: Some(Start::On((base_time + Days::new(1)).date_naive())),
+                    start: Some(Start::On(base_time.date_naive() + Days::new(1))),
                     ..Default::default()
                 },
                 None,
@@ -3086,8 +3650,8 @@ mod query_tests {
 
         let opts = TaskQueryOptions {
             start_filter: Some(DateFilter::Range(
-                DateBound::Exclusive((base_time - Days::new(1)).date_naive()),
-                DateBound::Exclusive((base_time + Days::new(1)).date_naive()),
+                DateBound::Exclusive(base_time.date_naive() - Days::new(1)),
+                DateBound::Exclusive(base_time.date_naive() + Days::new(1)),
             )),
             ..Default::default()
         };
@@ -3099,8 +3663,8 @@ mod query_tests {
 
             assert!(
                 tasks.iter().all(|task| if let Some(dt) = task.start_dt {
-                    dt.date_naive() > (base_time - Days::new(1)).date_naive()
-                        && dt.date_naive() < (base_time + Days::new(1)).date_naive()
+                    dt.date_naive() > base_time.date_naive() - Days::new(1)
+                        && dt.date_naive() < base_time.date_naive() + Days::new(1)
                 } else {
                     false
                 }),
@@ -3110,8 +3674,8 @@ mod query_tests {
 
         let opts = TaskQueryOptions {
             start_filter: Some(DateFilter::Range(
-                DateBound::Exclusive((base_time - Days::new(1)).date_naive()),
-                DateBound::Inclusive((base_time + Days::new(1)).date_naive()),
+                DateBound::Exclusive(base_time.date_naive() - Days::new(1)),
+                DateBound::Inclusive(base_time.date_naive() + Days::new(1)),
             )),
             ..Default::default()
         };
@@ -3123,8 +3687,8 @@ mod query_tests {
 
             assert!(
                 tasks.iter().all(|task| if let Some(dt) = task.start_dt {
-                    dt.date_naive() > (base_time - Days::new(1)).date_naive()
-                        && dt.date_naive() <= (base_time + Days::new(1)).date_naive()
+                    dt.date_naive() > base_time.date_naive() - Days::new(1)
+                        && dt.date_naive() <= base_time.date_naive() + Days::new(1)
                 } else {
                     false
                 }),
@@ -3134,8 +3698,8 @@ mod query_tests {
 
         let opts = TaskQueryOptions {
             start_filter: Some(DateFilter::Range(
-                DateBound::Inclusive((base_time - Days::new(1)).date_naive()),
-                DateBound::Inclusive((base_time + Days::new(1)).date_naive()),
+                DateBound::Inclusive(base_time.date_naive() - Days::new(1)),
+                DateBound::Inclusive(base_time.date_naive() + Days::new(1)),
             )),
             ..Default::default()
         };
@@ -3147,8 +3711,8 @@ mod query_tests {
 
             assert!(
                 tasks.iter().all(|task| if let Some(dt) = task.start_dt {
-                    dt.date_naive() >= (base_time - Days::new(1)).date_naive()
-                        && dt.date_naive() <= (base_time + Days::new(1)).date_naive()
+                    dt.date_naive() >= base_time.date_naive() - Days::new(1)
+                        && dt.date_naive() <= base_time.date_naive() + Days::new(1)
                 } else {
                     false
                 }),
@@ -3158,8 +3722,8 @@ mod query_tests {
 
         let opts = TaskQueryOptions {
             start_filter: Some(DateFilter::Range(
-                DateBound::Inclusive((base_time - Days::new(1)).date_naive()),
-                DateBound::Exclusive((base_time + Days::new(1)).date_naive()),
+                DateBound::Inclusive(base_time.date_naive() - Days::new(1)),
+                DateBound::Exclusive(base_time.date_naive() + Days::new(1)),
             )),
             ..Default::default()
         };
@@ -3171,8 +3735,8 @@ mod query_tests {
 
             assert!(
                 tasks.iter().all(|task| if let Some(dt) = task.start_dt {
-                    dt.date_naive() >= (base_time - Days::new(1)).date_naive()
-                        && dt.date_naive() < (base_time + Days::new(1)).date_naive()
+                    dt.date_naive() >= base_time.date_naive() - Days::new(1)
+                        && dt.date_naive() < base_time.date_naive() + Days::new(1)
                 } else {
                     false
                 }),
@@ -3202,7 +3766,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some((base_time - Days::new(1)).date_naive()),
+                    deadline: Some(base_time.date_naive() - Days::new(1)),
                     ..Default::default()
                 },
                 None,
@@ -3226,7 +3790,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some((base_time + Days::new(1)).date_naive()),
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
                     ..Default::default()
                 },
                 None,
@@ -3291,7 +3855,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some((base_time - Days::new(1)).date_naive()),
+                    deadline: Some(base_time.date_naive() - Days::new(1)),
                     ..Default::default()
                 },
                 None,
@@ -3315,7 +3879,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some((base_time + Days::new(1)).date_naive()),
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
                     ..Default::default()
                 },
                 None,
@@ -3388,7 +3952,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some((base_time - Days::new(1)).date_naive()),
+                    deadline: Some(base_time.date_naive() - Days::new(1)),
                     ..Default::default()
                 },
                 None,
@@ -3412,7 +3976,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some((base_time + Days::new(1)).date_naive()),
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
                     ..Default::default()
                 },
                 None,
@@ -3467,7 +4031,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some((base_time - Days::new(1)).date_naive()),
+                    deadline: Some(base_time.date_naive() - Days::new(1)),
                     ..Default::default()
                 },
                 None,
@@ -3491,7 +4055,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some((base_time + Days::new(1)).date_naive()),
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
                     ..Default::default()
                 },
                 None,
@@ -3546,7 +4110,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some((base_time - Days::new(1)).date_naive()),
+                    deadline: Some(base_time.date_naive() - Days::new(1)),
                     ..Default::default()
                 },
                 None,
@@ -3570,7 +4134,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some((base_time + Days::new(1)).date_naive()),
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
                     ..Default::default()
                 },
                 None,
@@ -3625,7 +4189,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some((base_time - Days::new(1)).date_naive()),
+                    deadline: Some(base_time.date_naive() - Days::new(1)),
                     ..Default::default()
                 },
                 None,
@@ -3649,7 +4213,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some((base_time + Days::new(1)).date_naive()),
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
                     ..Default::default()
                 },
                 None,
@@ -3716,7 +4280,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some((base_time - Days::new(1)).date_naive()),
+                    deadline: Some(base_time.date_naive() - Days::new(1)),
                     ..Default::default()
                 },
                 None,
@@ -3740,7 +4304,7 @@ mod query_tests {
             create_test_task(
                 &mut tx,
                 TaskCreate {
-                    deadline: Some((base_time + Days::new(1)).date_naive()),
+                    deadline: Some(base_time.date_naive() + Days::new(1)),
                     ..Default::default()
                 },
                 None,
@@ -3765,8 +4329,8 @@ mod query_tests {
 
         let opts = TaskQueryOptions {
             deadline_filter: Some(DateFilter::Range(
-                DateBound::Exclusive((base_time - Days::new(1)).date_naive()),
-                DateBound::Exclusive((base_time + Days::new(1)).date_naive()),
+                DateBound::Exclusive(base_time.date_naive() - Days::new(1)),
+                DateBound::Exclusive(base_time.date_naive() + Days::new(1)),
             )),
             ..Default::default()
         };
@@ -3778,8 +4342,8 @@ mod query_tests {
 
             assert!(
                 tasks.iter().all(|task| if let Some(date) = task.deadline {
-                    date > (base_time - Days::new(1)).date_naive()
-                        && date < (base_time + Days::new(1)).date_naive()
+                    date > base_time.date_naive() - Days::new(1)
+                        && date < base_time.date_naive() + Days::new(1)
                 } else {
                     false
                 }),
@@ -3789,8 +4353,8 @@ mod query_tests {
 
         let opts = TaskQueryOptions {
             deadline_filter: Some(DateFilter::Range(
-                DateBound::Exclusive((base_time - Days::new(1)).date_naive()),
-                DateBound::Inclusive((base_time + Days::new(1)).date_naive()),
+                DateBound::Exclusive(base_time.date_naive() - Days::new(1)),
+                DateBound::Inclusive(base_time.date_naive() + Days::new(1)),
             )),
             ..Default::default()
         };
@@ -3802,8 +4366,8 @@ mod query_tests {
 
             assert!(
                 tasks.iter().all(|task| if let Some(date) = task.deadline {
-                    date > (base_time - Days::new(1)).date_naive()
-                        && date <= (base_time + Days::new(1)).date_naive()
+                    date > base_time.date_naive() - Days::new(1)
+                        && date <= base_time.date_naive() + Days::new(1)
                 } else {
                     false
                 }),
@@ -3813,8 +4377,8 @@ mod query_tests {
 
         let opts = TaskQueryOptions {
             deadline_filter: Some(DateFilter::Range(
-                DateBound::Inclusive((base_time - Days::new(1)).date_naive()),
-                DateBound::Inclusive((base_time + Days::new(1)).date_naive()),
+                DateBound::Inclusive(base_time.date_naive() - Days::new(1)),
+                DateBound::Inclusive(base_time.date_naive() + Days::new(1)),
             )),
             ..Default::default()
         };
@@ -3826,8 +4390,8 @@ mod query_tests {
 
             assert!(
                 tasks.iter().all(|task| if let Some(date) = task.deadline {
-                    date >= (base_time - Days::new(1)).date_naive()
-                        && date <= (base_time + Days::new(1)).date_naive()
+                    date >= base_time.date_naive() - Days::new(1)
+                        && date <= base_time.date_naive() + Days::new(1)
                 } else {
                     false
                 }),
@@ -3837,8 +4401,8 @@ mod query_tests {
 
         let opts = TaskQueryOptions {
             deadline_filter: Some(DateFilter::Range(
-                DateBound::Inclusive((base_time - Days::new(1)).date_naive()),
-                DateBound::Exclusive((base_time + Days::new(1)).date_naive()),
+                DateBound::Inclusive(base_time.date_naive() - Days::new(1)),
+                DateBound::Exclusive(base_time.date_naive() + Days::new(1)),
             )),
             ..Default::default()
         };
@@ -3850,8 +4414,8 @@ mod query_tests {
 
             assert!(
                 tasks.iter().all(|task| if let Some(date) = task.deadline {
-                    date >= (base_time - Days::new(1)).date_naive()
-                        && date < (base_time + Days::new(1)).date_naive()
+                    date >= base_time.date_naive() - Days::new(1)
+                        && date < base_time.date_naive() + Days::new(1)
                 } else {
                     false
                 }),
@@ -3956,7 +4520,7 @@ mod query_tests {
         ];
 
         let opts = TaskQueryOptions {
-            limit: Some(MAX_LIMIT),
+            limit: MAX_LIMIT,
             ..Default::default()
         };
 
@@ -3997,8 +4561,8 @@ mod query_tests {
         let base_time = get_time();
 
         let opts = TaskQueryOptions {
-            limit: Some(5),
-            offset: Some(10),
+            limit: 5,
+            offset: 10,
             sort_order: TaskSort::Created(SortOrder::Ascending),
             completed: true,
             deleted: true,
@@ -4017,7 +4581,7 @@ mod query_tests {
 }
 
 #[cfg(test)]
-mod select_tests {
+mod select {
     use std::{collections::HashSet, time::Duration};
 
     use tokio::test;
@@ -4294,15 +4858,17 @@ mod select_tests {
 }
 
 #[cfg(test)]
-mod insert_tests {
+mod insert {
     use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime};
     use tokio::test;
     use uuid::Uuid;
 
     use super::insert_task_inner;
-    use crate::db::test_utils::{create_test_tag, get_pool, get_time};
     use crate::{
-        db::{ApplicationError, Error},
+        db::{
+            ApplicationError, Error,
+            test_utils::{create_test_tag, get_pool, get_time},
+        },
         routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate},
     };
 
@@ -4762,15 +5328,17 @@ mod insert_tests {
 }
 
 #[cfg(test)]
-mod update_tests {
+mod update {
     use chrono::{Duration, NaiveDate};
     use tokio::test;
     use uuid::Uuid;
 
     use super::update_task_inner;
-    use crate::db::test_utils::{create_test_tag, create_test_task, get_pool, get_task, get_time};
     use crate::{
-        db::{ApplicationError, Error},
+        db::{
+            ApplicationError, Error,
+            test_utils::{create_test_tag, create_test_task, get_pool, get_task, get_time},
+        },
         routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate},
     };
 
@@ -5553,13 +6121,15 @@ mod update_tests {
 }
 
 #[cfg(test)]
-mod delete_tests {
+mod delete {
     use tokio::test;
     use uuid::Uuid;
 
     use super::delete_task_inner;
-    use crate::db::test_utils::{create_test_task, get_pool, get_task, get_time};
-    use crate::routes::models::task::Model as TaskCreate;
+    use crate::{
+        db::test_utils::{create_test_task, get_pool, get_task, get_time},
+        routes::models::task::Model as TaskCreate,
+    };
 
     #[test]
     async fn base_delete() {
@@ -5708,14 +6278,16 @@ mod delete_tests {
 }
 
 #[cfg(test)]
-mod restore_tests {
+mod restore {
     use tokio::test;
     use uuid::Uuid;
 
     use super::restore_task_inner;
-    use crate::db::test_utils::{create_test_task, get_pool, get_task, get_time};
     use crate::{
-        db::{ApplicationError, Error},
+        db::{
+            ApplicationError, Error,
+            test_utils::{create_test_task, get_pool, get_task, get_time},
+        },
         routes::models::task::Model as TaskCreate,
     };
 
@@ -5867,14 +6439,16 @@ mod restore_tests {
 }
 
 #[cfg(test)]
-mod complete_tests {
+mod complete {
     use tokio::test;
     use uuid::Uuid;
 
     use super::complete_task_inner;
-    use crate::db::test_utils::{create_test_task, get_pool, get_task, get_time};
     use crate::{
-        db::{ApplicationError, Error},
+        db::{
+            ApplicationError, Error,
+            test_utils::{create_test_task, get_pool, get_task, get_time},
+        },
         routes::models::task::Model as TaskCreate,
     };
 
