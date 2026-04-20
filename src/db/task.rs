@@ -34,18 +34,31 @@ use crate::{
 /// * `deleted`: filter by deletion status (default: false)
 /// * `start_filter`: filter by start date range
 /// * `deadline_filter`: filter by deadline range
-#[derive(Default)]
 pub struct TaskQueryOptions {
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-
     pub sort_order: TaskSort,
+
+    pub limit: i64,
+    pub offset: i64,
 
     pub completed: bool,
     pub deleted: bool,
 
     pub start_filter: Option<DateFilter>,
     pub deadline_filter: Option<DateFilter>,
+}
+
+impl Default for TaskQueryOptions {
+    fn default() -> Self {
+        Self {
+            sort_order: TaskSort::default(),
+            limit: DEFAULT_LIMIT,
+            offset: 0,
+            completed: false,
+            deleted: false,
+            start_filter: None,
+            deadline_filter: None,
+        }
+    }
 }
 
 /// Query database for tasks
@@ -79,9 +92,6 @@ async fn query_tasks_inner(
     user_id: Uuid,
     opts: TaskQueryOptions,
 ) -> Result<Vec<Task>> {
-    let limit = opts.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
-    let offset = opts.offset.unwrap_or(0).max(0);
-
     let mut builder = QueryBuilder::new("SELECT * FROM app.tasks WHERE created_by = ");
     builder.push_bind(user_id);
     if opts.completed {
@@ -162,9 +172,9 @@ async fn query_tasks_inner(
         }
     };
     builder.push(" LIMIT ");
-    builder.push_bind(limit);
+    builder.push_bind(opts.limit.clamp(1, MAX_LIMIT));
     builder.push(" OFFSET ");
-    builder.push_bind(offset);
+    builder.push_bind(opts.offset.max(0));
 
     let query = builder.build_query_as::<Task>();
 

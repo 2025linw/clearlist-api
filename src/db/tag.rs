@@ -19,12 +19,21 @@ use crate::{
 /// * `limit`: limits number of tags to return (default: 50)
 /// * `offset`: number of tags to skip (default: 0)
 /// * `sort_order`: order to return tags (default: recently updated first (updated decreasing))
-#[derive(Default)]
 pub struct TagQueryOptions {
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-
     pub sort_order: TagSort,
+
+    pub limit: i64,
+    pub offset: i64,
+}
+
+impl Default for TagQueryOptions {
+    fn default() -> Self {
+        Self {
+            sort_order: Default::default(),
+            limit: DEFAULT_LIMIT,
+            offset: 0,
+        }
+    }
 }
 
 /// Query database for tags
@@ -54,9 +63,6 @@ async fn query_tags_inner(
     user_id: Uuid,
     opts: TagQueryOptions,
 ) -> Result<Vec<Tag>> {
-    let limit = opts.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
-    let offset = opts.offset.unwrap_or(0).max(0);
-
     let mut builder = QueryBuilder::new("SELECT * FROM app.tags WHERE created_by = ");
     builder.push_bind(user_id);
     match opts.sort_order {
@@ -68,9 +74,9 @@ async fn query_tags_inner(
         TagSort::Label(SortOrder::Descending) => builder.push(" ORDER BY label DESC"),
     };
     builder.push(" LIMIT ");
-    builder.push_bind(limit);
+    builder.push_bind(opts.limit.clamp(1, MAX_LIMIT));
     builder.push(" OFFSET ");
-    builder.push_bind(offset);
+    builder.push_bind(opts.offset.max(0));
 
     let query = builder.build_query_as::<Tag>();
 
@@ -148,7 +154,7 @@ async fn insert_tag_inner(
 ) -> Result<Tag> {
     let tag = query_as_wrapper::<Tag>(
         "INSERT INTO app.tags (label, category, created_by)
-        VALUES ($1, $2, $3)
+        VALUES ($1, NULLIF(trim($2), ''), $3)
         RETURNING id",
     )
     .bind(insert_tag.label)
@@ -197,7 +203,7 @@ async fn update_tag_inner(
     let tag_opt = query_as_wrapper::<Tag>(
         "UPDATE app.tags
         SET (label, category)
-        = ($3, $4)
+        = ($3, NULLIF(trim($4), ''))
         WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL
         RETURNING *",
     )

@@ -64,9 +64,9 @@ pub async fn query_handler(
     };
 
     let opts = TaskQueryOptions {
-        limit: Some(limit),
-        offset: Some(offset),
         sort_order: (sort_by, sort_order).into(),
+        limit: limit,
+        offset: offset,
         completed,
         deleted,
         start_filter,

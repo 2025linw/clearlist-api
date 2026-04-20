@@ -40,9 +40,9 @@ pub async fn query_handler(
     let offset = (page - 1) * limit;
 
     let opts = TagQueryOptions {
-        limit: Some(limit),
-        offset: Some(offset),
         sort_order: (sort_by, sort_order).into(),
+        limit: limit,
+        offset: offset,
     };
 
     let tags = query_tags(data.db.pool(), session.user_id(), opts)
