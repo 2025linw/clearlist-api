@@ -119,16 +119,16 @@ pub async fn delete_handler(
 }
 
 #[cfg(test)]
-mod query_tests {}
+mod query {}
 
 #[cfg(test)]
-mod create_tests {}
+mod create {}
 
 #[cfg(test)]
-mod retrieve_tests {}
+mod retrieve {}
 
 #[cfg(test)]
-mod update_tests {}
+mod update {}
 
 #[cfg(test)]
-mod delete_tests {}
+mod delete {}
