@@ -64,9 +64,9 @@ pub async fn query_handler(
     };
 
     let opts = TaskQueryOptions {
-        limit: Some(limit),
-        offset: Some(offset),
         sort_order: (sort_by, sort_order).into(),
+        limit,
+        offset,
         completed,
         deleted,
         start_filter,
@@ -174,16 +174,16 @@ pub async fn complete_handler(
 }
 
 #[cfg(test)]
-mod query_tests {}
+mod query {}
 
 #[cfg(test)]
-mod create_tests {}
+mod create {}
 
 #[cfg(test)]
-mod retrieve_tests {}
+mod retrieve {}
 
 #[cfg(test)]
-mod update_tests {}
+mod update {}
 
 #[cfg(test)]
-mod delete_tests {}
+mod delete {}

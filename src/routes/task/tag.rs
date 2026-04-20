@@ -34,12 +34,13 @@ pub async fn query_handler(
 }
 
 /// Task Tags Create Handler
-pub async fn create_handler(
+pub async fn append_handler(
     session: Session,
     State(data): State<AppState>,
-    Path((task_id, tag_id)): Path<(Uuid, Uuid)>,
+    Path(task_id): Path<Uuid>,
+    Json(tag_ids): Json<Vec<Uuid>>,
 ) -> Result<Response, Error> {
-    tag::insert_task_tag(data.db.pool(), task_id, session.user_id(), tag_id)
+    tag::insert_task_tags(data.db.pool(), task_id, session.user_id(), tag_ids)
         .await
         .map_err(Error::from)?;
 
@@ -74,13 +75,13 @@ pub async fn delete_handler(
 }
 
 #[cfg(test)]
-mod query_tests {}
+mod query {}
 
 #[cfg(test)]
-mod create_tests {}
+mod create {}
 
 #[cfg(test)]
-mod update_tests {}
+mod update {}
 
 #[cfg(test)]
-mod delete_tests {}
+mod delete {}

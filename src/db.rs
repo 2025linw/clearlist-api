@@ -7,6 +7,10 @@ pub mod tag;
 pub mod task;
 
 mod error;
+mod utils;
+
+#[cfg(test)]
+mod test_utils;
 
 pub use error::{ApplicationError, Error, Result};
 

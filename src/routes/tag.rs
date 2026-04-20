@@ -40,9 +40,9 @@ pub async fn query_handler(
     let offset = (page - 1) * limit;
 
     let opts = TagQueryOptions {
-        limit: Some(limit),
-        offset: Some(offset),
         sort_order: (sort_by, sort_order).into(),
+        limit,
+        offset,
     };
 
     let tags = query_tags(data.db.pool(), session.user_id(), opts)
@@ -119,16 +119,16 @@ pub async fn delete_handler(
 }
 
 #[cfg(test)]
-mod query_tests {}
+mod query {}
 
 #[cfg(test)]
-mod create_tests {}
+mod create {}
 
 #[cfg(test)]
-mod retrieve_tests {}
+mod retrieve {}
 
 #[cfg(test)]
-mod update_tests {}
+mod update {}
 
 #[cfg(test)]
-mod delete_tests {}
+mod delete {}

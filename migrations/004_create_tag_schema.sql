@@ -24,7 +24,7 @@ CREATE TABLE app.task_tags (
 
 -- Trigger to ensure that no task or tag is 'deleted' when adding task-tags
 CREATE OR REPLACE FUNCTION app.check_task_not_deleted()
-RETURNS TRIGGER AS $$
+RETURNS trigger AS $$
 BEGIN
     IF EXISTS (
         SELECT 1

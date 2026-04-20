@@ -47,6 +47,7 @@ impl From<DbError> for Error {
     fn from(value: DbError) -> Self {
         match value {
             DbError::Application(ref app_err) => match app_err {
+                ApplicationError::UserNotFound => Self::NotAuthorized,
                 ApplicationError::TaskNotFound | ApplicationError::TagNotFound => {
                     Self::NotFound(app_err.to_string())
                 }
