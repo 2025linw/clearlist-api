@@ -39,6 +39,7 @@ impl Default for Pagination {
 #[serde(untagged)]
 pub enum DateFilter {
     /// Existence Filter
+    #[serde(deserialize_with = "deserialize_bool")]
     Has(bool),
 
     /// Exact Filter, has to match exactly
@@ -124,4 +125,22 @@ where
     }
 
     Ok([start, end])
+}
+
+/// Internal serde helper to deserialze bool string into bool type
+///
+/// Deserialize 'true' or 'false' into `true` or `false`
+fn deserialize_bool<'de, D>(deserialize: D) -> Result<bool, D::Error>
+where
+D: Deserializer<'de>,
+{
+    let s: Cow<'_, str> = Deserialize::deserialize(deserialize)?;
+
+    if s.trim().is_empty() {
+        return Err(D::Error::custom("Value cannot be empty"));
+    }
+
+    let bool = s.parse::<bool>().map_err(|_| D::Error::custom("Invalid bool value"))?;
+
+    Ok(bool)
 }
