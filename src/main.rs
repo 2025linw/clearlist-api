@@ -26,7 +26,7 @@ async fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 {
         if args.len() > 2 {
-            eprintln!("{} expected 0-1 argument: 'function'", args[0]);
+            eprintln!("{} Expected 0 or 1 arguments: <function>", args[0]);
 
             std::process::exit(1);
         }
@@ -44,15 +44,15 @@ async fn main() {
 
                 // TODO: turn this into a function that can be reused in testing
                 if let Err(e) = run_migration(&mut conn).await {
-                    eprintln!("error occured running migration: {}", e);
+                    eprintln!("Error occured running migration: {}", e);
 
                     std::process::exit(1);
                 }
 
-                println!("migration ran successfully");
+                println!("Migration ran successfully");
             }
             _ => {
-                eprintln!("unknown option found: '{}'", args[1]);
+                eprintln!("Unknown option found: '{}'", args[1]);
 
                 std::process::exit(1);
             }
