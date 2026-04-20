@@ -66,12 +66,20 @@ async fn query_tags_inner(
     let mut builder = QueryBuilder::new("SELECT * FROM app.tags WHERE created_by = ");
     builder.push_bind(user_id);
     match opts.sort_order {
-        TagSort::Updated(SortOrder::Descending) => builder.push(" ORDER BY updated_at DESC"),
-        TagSort::Updated(SortOrder::Ascending) => builder.push(" ORDER BY updated_at ASC"),
-        TagSort::Created(SortOrder::Descending) => builder.push(" ORDER BY created_at DESC"),
-        TagSort::Created(SortOrder::Ascending) => builder.push(" ORDER BY created_at ASC"),
-        TagSort::Label(SortOrder::Ascending) => builder.push(" ORDER BY label ASC"),
-        TagSort::Label(SortOrder::Descending) => builder.push(" ORDER BY label DESC"),
+        TagSort::Created(SortOrder::Ascending) => builder.push(" ORDER BY created_at ASC, id ASC"),
+        TagSort::Created(SortOrder::Descending) => {
+            builder.push(" ORDER BY created_at DESC, id ASC")
+        }
+        TagSort::Updated(SortOrder::Ascending) => builder.push(" ORDER BY updated_at ASC, id ASC"),
+        TagSort::Updated(SortOrder::Descending) => {
+            builder.push(" ORDER BY updated_at DESC, id ASC")
+        }
+        TagSort::Label(SortOrder::Ascending) => {
+            builder.push(" ORDER BY LOWER(label) ASC, updated_at DESC, id ASC")
+        }
+        TagSort::Label(SortOrder::Descending) => {
+            builder.push(" ORDER BY LOWER(label) DESC, updated_at DESC, id ASC")
+        }
     };
     builder.push(" LIMIT ");
     builder.push_bind(opts.limit.clamp(1, MAX_LIMIT));

@@ -41,8 +41,8 @@ pub async fn query_handler(
 
     let opts = TagQueryOptions {
         sort_order: (sort_by, sort_order).into(),
-        limit: limit,
-        offset: offset,
+        limit,
+        offset,
     };
 
     let tags = query_tags(data.db.pool(), session.user_id(), opts)
