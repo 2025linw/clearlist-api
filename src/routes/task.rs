@@ -4,13 +4,8 @@
 
 pub mod tag;
 
-use axum::{
-    Json,
-    extract::{Path, State},
-    http::StatusCode,
-};
+use axum::{extract::State, http::StatusCode};
 use serde_json::json;
-use serde_qs::axum::QsForm as Query;
 use uuid::Uuid;
 
 use super::{
@@ -19,7 +14,7 @@ use super::{
         Completed, Pagination,
         task::{Filter, Model},
     },
-    util::Session,
+    util::{Json, Path, Query, Session},
 };
 use crate::{
     AppState,

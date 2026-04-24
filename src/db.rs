@@ -65,8 +65,8 @@ impl DatabaseConn {
     ///
     /// `DATABASE_URL` must be set in environment before utilizing this method
     pub async fn connect_env() -> Result<Self> {
-        if env::var("DATABASE_URL").is_ok() {
-            Self::connect_str(&env::var("DATABASE_URL").unwrap()).await
+        if let Ok(url) = env::var("DATABASE_URL") {
+            Self::connect_str(&url).await
         } else {
             Err(Error::Operation("DATABASE_URL not found".to_string()))
         }

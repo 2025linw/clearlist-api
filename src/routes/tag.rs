@@ -2,11 +2,7 @@
 //!
 //! This module contains collection of route handler functions for tags
 
-use axum::{
-    Json,
-    extract::{Path, Query, State},
-    http::StatusCode,
-};
+use axum::{extract::State, http::StatusCode};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -16,7 +12,7 @@ use super::{
         Pagination,
         tag::{Filter, Model},
     },
-    util::Session,
+    util::{Json, Path, Query, Session},
 };
 use crate::{
     AppState,

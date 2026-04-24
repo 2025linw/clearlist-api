@@ -13,6 +13,7 @@ use super::{DateFilter, Pagination, SortOrder, Start};
 /// This represents the fields a client is able to create/modify for a Task
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(Default, Clone))]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct Model {
     #[serde(default)]
@@ -28,6 +29,7 @@ pub struct Model {
 ///
 /// This represents the url parameter fields for filtering Tasks queried
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Filter {
     #[serde(flatten)]
     pub pagination: Pagination,
@@ -49,6 +51,7 @@ pub struct Filter {
     #[serde(alias = "done")]
     pub completed: bool,
     #[serde(default)]
+    // #[serde(alias = "trash")]
     pub deleted: bool,
 }
 

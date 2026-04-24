@@ -33,16 +33,16 @@ async fn main() {
 
         match args[1].as_ref() {
             "migrate" => {
-                if env::var("MIGRATION_URL").is_err() {
+                let mut conn = if let Ok(url) = env::var("MIGRATION_URL")
+                    && let Ok(conn) = PgConnection::connect(&url).await
+                {
+                    conn
+                } else {
                     eprintln!("MIGRATION_URL not found in environment variables");
 
                     std::process::exit(1);
-                }
+                };
 
-                let url = env::var("MIGRATION_URL").unwrap();
-                let mut conn = PgConnection::connect(&url).await.unwrap();
-
-                // TODO: turn this into a function that can be reused in testing
                 if let Err(e) = run_migration(&mut conn).await {
                     eprintln!("Error occured running migration: {}", e);
 
@@ -77,20 +77,24 @@ async fn main() {
     }
 
     debug!("Getting environment variables");
-    let srv_port = env::var("SRV_PORT").unwrap();
+    let srv_port =
+        env::var("SRV_PORT").expect("SRV_PORT existence should have already been checked");
 
     // Setup Database Connection Pool
     debug!("Setting up database connection");
-    let db_conn = {
-        let conn = DatabaseConn::connect_env().await.unwrap();
-        if !conn.is_active().await {
-            eprintln!("database connection is not active");
-
-            std::process::exit(1)
-        }
-
+    let db_conn = if let Ok(conn) = DatabaseConn::connect_env().await {
         conn
+    } else {
+        eprintln!("Failed to connect to database");
+
+        std::process::exit(1);
     };
+
+    if !db_conn.is_active().await {
+        eprintln!("database connection is not active");
+
+        std::process::exit(1);
+    }
 
     // Setup app state
     let app_state = AppState::init(db_conn);

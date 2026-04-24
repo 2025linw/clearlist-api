@@ -2,15 +2,11 @@
 //!
 //! This module contains collection of route handler functions for task tags
 
-use axum::{
-    Json,
-    extract::{Path, State},
-    http::StatusCode,
-};
+use axum::{extract::State, http::StatusCode};
 use serde_json::json;
 use uuid::Uuid;
 
-use super::{Error, Session};
+use super::{Error, Json, Path, Session};
 use crate::{
     AppState,
     db::task::tag,

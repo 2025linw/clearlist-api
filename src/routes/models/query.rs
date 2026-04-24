@@ -132,7 +132,7 @@ where
 /// Deserialize 'true' or 'false' into `true` or `false`
 fn deserialize_bool<'de, D>(deserialize: D) -> Result<bool, D::Error>
 where
-D: Deserializer<'de>,
+    D: Deserializer<'de>,
 {
     let s: Cow<'_, str> = Deserialize::deserialize(deserialize)?;
 
@@ -140,7 +140,9 @@ D: Deserializer<'de>,
         return Err(D::Error::custom("Value cannot be empty"));
     }
 
-    let bool = s.parse::<bool>().map_err(|_| D::Error::custom("Invalid bool value"))?;
+    let bool = s
+        .parse::<bool>()
+        .map_err(|_| D::Error::custom("Invalid bool value"))?;
 
     Ok(bool)
 }

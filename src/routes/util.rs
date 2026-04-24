@@ -4,10 +4,17 @@
 
 use std::{env, sync::LazyLock};
 
-use axum::{extract::FromRequestParts, http::StatusCode};
+use axum::{
+    extract::{
+        FromRequest, FromRequestParts, Request,
+        rejection::{JsonRejection, PathRejection},
+    },
+    http::{StatusCode, request::Parts},
+};
 use axum_extra::extract::CookieJar;
 use chrono::{DateTime, Utc};
 use governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
+use serde_qs::axum::QsQueryRejection;
 use sqlx::{FromRow, Postgres};
 use tower_governor::{
     governor::{GovernorConfig, GovernorConfigBuilder},
@@ -79,11 +86,11 @@ impl FromRequestParts<AppState> for Session {
 
         let session_id = cookies
             .get(&COOKIE_KEY)
-            .unwrap()
+            .unwrap() // TODO: do not unwrap here
             .value_trimmed()
             .split('.')
             .next()
-            .unwrap(); // TODO: do not unwrap here
+            .unwrap(); // TODO: or here
 
         let conn = state.db.pool();
         let session: Session = match sqlx::query_as::<Postgres, Session>(
@@ -122,6 +129,60 @@ impl FromRequestParts<AppState> for OptionalSession {
         match Session::from_request_parts(parts, state).await {
             Ok(session) => Ok(Some(session)),
             Err(_) => Ok(None),
+        }
+    }
+}
+
+/// Custom Path extractor to customize error
+pub struct Path<T>(pub T);
+
+impl<S, T> FromRequestParts<S> for Path<T>
+where
+    axum::extract::Path<T>: FromRequestParts<S, Rejection = PathRejection>,
+    S: Send + Sync,
+{
+    type Rejection = Error;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        match axum::extract::Path::<T>::from_request_parts(parts, state).await {
+            Ok(value) => Ok(Self(value.0)),
+            Err(rejection) => Err(Error::InvalidRequest(rejection.body_text())),
+        }
+    }
+}
+
+/// Custom Json extractor to customize error
+pub struct Json<T>(pub T);
+
+impl<S, T> FromRequest<S> for Json<T>
+where
+    axum::Json<T>: FromRequest<S, Rejection = JsonRejection>,
+    S: Send + Sync,
+{
+    type Rejection = Error;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        match axum::Json::<T>::from_request(req, state).await {
+            Ok(value) => Ok(Self(value.0)),
+            Err(rejection) => Err(Error::InvalidRequest(rejection.body_text())),
+        }
+    }
+}
+
+/// Custom QsForm (Query) extractor to customize error
+pub struct Query<T>(pub T);
+
+impl<S, T> FromRequest<S> for Query<T>
+where
+    serde_qs::axum::QsForm<T>: FromRequest<S, Rejection = QsQueryRejection>,
+    S: Send + Sync,
+{
+    type Rejection = Error;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        match serde_qs::axum::QsForm::<T>::from_request(req, state).await {
+            Ok(value) => Ok(Self(value.0)),
+            Err(rejection) => Err(Error::InvalidRequest(rejection.to_string())),
         }
     }
 }
