@@ -112,11 +112,13 @@ mod order_task_tag {
     fn sorting_full_list_matches_expected_order() {
         let base = Utc.with_ymd_and_hms(2026, 4, 20, 12, 0, 0).unwrap();
 
-        let mut tags = [make_tag(5, "banana", Some("work"), base),
+        let mut tags = [
+            make_tag(5, "banana", Some("work"), base),
             make_tag(4, "apple", Some("work"), base),
             make_tag(3, "apple", Some("work"), base + Duration::hours(1)),
             make_tag(2, "apple", Some("home"), base),
-            make_tag(1, "apple", None, base)];
+            make_tag(1, "apple", None, base),
+        ];
 
         tags.sort_by(order_task_tag);
 
