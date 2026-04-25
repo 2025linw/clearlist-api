@@ -51,7 +51,7 @@ pub struct Filter {
     #[serde(alias = "done")]
     pub completed: bool,
     #[serde(default)]
-    // #[serde(alias = "trash")]
+    #[serde(alias = "trash")]
     pub deleted: bool,
 }
 
