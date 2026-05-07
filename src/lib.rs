@@ -13,6 +13,8 @@ pub use db::{DatabaseConn, run_migration};
 
 use axum::{Router, routing::get};
 
+use crate::routes::missing_404_handler;
+
 /// App State Type
 ///
 /// `AppState` is used for reused resources throughout web server (such as database connections, etc)
@@ -33,5 +35,6 @@ pub fn create_app(app_state: AppState) -> Router {
     Router::new()
         .route("/health", get(routes::health_check_handler))
         .nest("/api", routes::create_api_router())
+        .fallback(missing_404_handler)
         .with_state(app_state)
 }
