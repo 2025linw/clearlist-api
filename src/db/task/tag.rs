@@ -356,9 +356,7 @@ mod query {
     use crate::{
         db::{
             ApplicationError, Error,
-            test_utils::{
-                check_sort_task_tag, create_test_tag, create_test_task, get_pool, get_time,
-            },
+            test_utils::{check_sort_task_tag, create_test_tag, create_test_task, db_init},
             utils::order_task_tag,
         },
         routes::models::{tag::Model as TagCreate, task::Model as TaskCreate},
@@ -366,10 +364,7 @@ mod query {
 
     #[test]
     async fn default_query() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag_list = [
             create_test_tag(
@@ -450,10 +445,7 @@ mod query {
 
     #[test]
     async fn no_tags() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -474,10 +466,7 @@ mod query {
 
     #[test]
     async fn one_tag() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag = create_test_tag(&mut tx, TagCreate::default(), base_time, base_time).await;
 
@@ -506,10 +495,7 @@ mod query {
 
     #[test]
     async fn many_tags() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag_list = [
             create_test_tag(
@@ -571,10 +557,7 @@ mod query {
 
     #[test]
     async fn deleted_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // No Tags
         let task = create_test_task(
@@ -680,8 +663,7 @@ mod query {
 
     #[test]
     async fn nonexistent_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res = query_task_tags_inner(&mut tx, Uuid::new_v4(), Uuid::nil()).await;
         assert!(res.is_err());
@@ -695,10 +677,7 @@ mod query {
 
     #[test]
     async fn as_nonexistent_user() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // No Tags
         let task = create_test_task(
@@ -814,7 +793,7 @@ mod insert {
     use crate::{
         db::{
             ApplicationError, Error,
-            test_utils::{create_test_tag, create_test_task, get_pool, get_task, get_time},
+            test_utils::{create_test_tag, create_test_task, db_init, get_task},
         },
         models::Tag,
         routes::models::{tag::Model as TagCreate, task::Model as TaskCreate},
@@ -822,10 +801,7 @@ mod insert {
 
     #[test]
     async fn base_append() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -846,10 +822,7 @@ mod insert {
 
     #[test]
     async fn is_idempotent() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -921,10 +894,7 @@ mod insert {
 
     #[test]
     async fn empty_list() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // No existing tags
         let task = create_test_task(
@@ -1008,10 +978,7 @@ mod insert {
 
     #[test]
     async fn one_tag() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -1065,10 +1032,7 @@ mod insert {
 
     #[test]
     async fn many_tags() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -1178,10 +1142,7 @@ mod insert {
 
     #[test]
     async fn nonexistent_tag_one() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -1205,10 +1166,7 @@ mod insert {
 
     #[test]
     async fn nonexistent_tag_within() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -1255,10 +1213,7 @@ mod insert {
 
     #[test]
     async fn nonexistent_tag_all() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -1290,10 +1245,7 @@ mod insert {
 
     #[test]
     async fn deleted_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -1317,8 +1269,7 @@ mod insert {
 
     #[test]
     async fn nonexistent_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res = insert_task_tags_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), vec![]).await;
         assert!(res.is_err());
@@ -1332,10 +1283,7 @@ mod insert {
 
     #[test]
     async fn as_nonexistent_user() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -1370,8 +1318,7 @@ mod update {
         db::{
             ApplicationError, Error,
             test_utils::{
-                check_sort_task_tag, create_test_tag, create_test_task, get_pool, get_task,
-                get_time,
+                check_sort_task_tag, create_test_tag, create_test_task, db_init, get_task,
             },
             utils::order_task_tag,
         },
@@ -1381,10 +1328,7 @@ mod update {
 
     #[test]
     async fn base_update() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag_list = [
             create_test_tag(&mut tx, TagCreate::default(), base_time, base_time).await,
@@ -1419,10 +1363,7 @@ mod update {
 
     #[test]
     async fn is_idempotent() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag_list = vec![
             create_test_tag(&mut tx, TagCreate::default(), base_time, base_time).await,
@@ -1477,10 +1418,7 @@ mod update {
 
     #[test]
     async fn empty_list() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // No existing tags
         let task = create_test_task(
@@ -1559,10 +1497,7 @@ mod update {
 
     #[test]
     async fn one_tag() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -1602,10 +1537,7 @@ mod update {
 
     #[test]
     async fn many_tags() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -1695,10 +1627,7 @@ mod update {
 
     #[test]
     async fn nonexistent_tag_one() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -1722,10 +1651,7 @@ mod update {
 
     #[test]
     async fn nonexistent_tag_within() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -1772,10 +1698,7 @@ mod update {
 
     #[test]
     async fn nonexistent_tag_all() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -1807,10 +1730,7 @@ mod update {
 
     #[test]
     async fn deleted_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -1834,8 +1754,7 @@ mod update {
 
     #[test]
     async fn nonexistent_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res = update_task_tags_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), vec![]).await;
         assert!(res.is_err());
@@ -1849,10 +1768,7 @@ mod update {
 
     #[test]
     async fn as_nonexistent_user() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -1884,17 +1800,14 @@ mod delete {
     use crate::{
         db::{
             ApplicationError, Error,
-            test_utils::{create_test_tag, create_test_task, get_pool, get_task, get_time},
+            test_utils::{create_test_tag, create_test_task, db_init, get_task},
         },
         routes::models::{tag::Model as TagCreate, task::Model as TaskCreate},
     };
 
     #[test]
     async fn base_delete() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag_list = [
             create_test_tag(&mut tx, TagCreate::default(), base_time, base_time).await,
@@ -1929,10 +1842,7 @@ mod delete {
 
     #[test]
     async fn is_idempotent() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag_list = [
             create_test_tag(&mut tx, TagCreate::default(), base_time, base_time).await,
@@ -1975,10 +1885,7 @@ mod delete {
 
     #[test]
     async fn tag_not_on_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag_list = [
             create_test_tag(&mut tx, TagCreate::default(), base_time, base_time).await,
@@ -2026,10 +1933,7 @@ mod delete {
 
     #[test]
     async fn nonexistent_tag() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -2051,10 +1955,7 @@ mod delete {
 
     #[test]
     async fn deleted_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag = create_test_tag(&mut tx, TagCreate::default(), base_time, base_time).await;
 
@@ -2080,8 +1981,7 @@ mod delete {
 
     #[test]
     async fn nonexistent_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res = delete_task_tag_inner(&mut tx, Uuid::nil(), Uuid::nil(), Uuid::new_v4()).await;
         assert!(res.is_err());
@@ -2095,10 +1995,7 @@ mod delete {
 
     #[test]
     async fn as_nonexistent_user() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag = create_test_tag(&mut tx, TagCreate::default(), base_time, base_time).await;
 

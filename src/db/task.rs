@@ -602,17 +602,14 @@ mod query {
         com::constants::MAX_LIMIT,
         db::{
             filters::{DateBound, DateFilter, TaskSort},
-            test_utils::{create_test_tag, create_test_task, get_pool, get_time},
+            test_utils::{create_test_tag, create_test_task, db_init},
         },
         routes::models::{SortOrder, Start, tag::Model as TagCreate, task::Model as TaskCreate},
     };
 
     #[test]
     async fn default_query() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -696,10 +693,7 @@ mod query {
 
     #[test]
     async fn sort_updated_ascending() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -768,10 +762,7 @@ mod query {
 
     #[test]
     async fn sort_created_descending() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -858,10 +849,7 @@ mod query {
 
     #[test]
     async fn sort_created_ascending() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -948,10 +936,7 @@ mod query {
 
     #[test]
     async fn sort_title_ascending() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -1129,10 +1114,7 @@ mod query {
 
     #[test]
     async fn sort_title_descending() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -1310,10 +1292,7 @@ mod query {
 
     #[test]
     async fn sort_start_ascending() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -1616,10 +1595,7 @@ mod query {
 
     #[test]
     async fn sort_start_descending() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -1922,10 +1898,7 @@ mod query {
 
     #[test]
     async fn sort_deadline_ascending() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -2115,10 +2088,7 @@ mod query {
 
     #[test]
     async fn sort_deadline_descending() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -2308,10 +2278,7 @@ mod query {
 
     #[test]
     async fn limit() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         for _ in 0..50 {
@@ -2349,10 +2316,7 @@ mod query {
 
     #[test]
     async fn limit_0() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         for _ in 0..50 {
@@ -2383,10 +2347,7 @@ mod query {
 
     #[test]
     async fn limit_absurdly_large() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         for _ in 0..250 {
@@ -2422,10 +2383,7 @@ mod query {
 
     #[test]
     async fn limit_negative() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         for _ in 0..10 {
@@ -2482,10 +2440,7 @@ mod query {
 
     #[test]
     async fn limit_with_lots_of_data() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         for _ in 0..1000 {
@@ -2521,10 +2476,7 @@ mod query {
 
     #[test]
     async fn limit_with_paging_offset() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         for _ in 0..254 {
@@ -2595,10 +2547,7 @@ mod query {
 
     #[test]
     async fn offset_absurdly_large() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         for _ in 0..250 {
@@ -2624,10 +2573,7 @@ mod query {
 
     #[test]
     async fn offset_negative() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         for _ in 0..250 {
@@ -2681,10 +2627,7 @@ mod query {
 
     #[test]
     async fn offset_without_limit() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         for _ in 0..250 {
@@ -2726,10 +2669,7 @@ mod query {
 
     #[test]
     async fn filter_completed() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -2783,10 +2723,7 @@ mod query {
 
     #[test]
     async fn filter_deleted() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -2840,10 +2777,7 @@ mod query {
 
     #[test]
     async fn filter_has_start() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -2917,10 +2851,7 @@ mod query {
 
     #[test]
     async fn filter_start_on() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -3050,10 +2981,7 @@ mod query {
 
     #[test]
     async fn filter_start_after_excl() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -3165,10 +3093,7 @@ mod query {
 
     #[test]
     async fn filter_start_after_incl() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -3280,10 +3205,7 @@ mod query {
 
     #[test]
     async fn filter_start_before_excl() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -3395,10 +3317,7 @@ mod query {
 
     #[test]
     async fn filter_start_before_incl() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -3510,10 +3429,7 @@ mod query {
 
     #[test]
     async fn filter_start_between() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -3747,10 +3663,7 @@ mod query {
 
     #[test]
     async fn filter_has_deadline() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -3836,10 +3749,7 @@ mod query {
 
     #[test]
     async fn filter_deadline_on() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -3933,10 +3843,7 @@ mod query {
 
     #[test]
     async fn filter_deadline_after_excl() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -4012,10 +3919,7 @@ mod query {
 
     #[test]
     async fn filter_deadline_after_incl() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -4091,10 +3995,7 @@ mod query {
 
     #[test]
     async fn filter_deadline_before_excl() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -4170,10 +4071,7 @@ mod query {
 
     #[test]
     async fn filter_deadline_before_incl() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -4249,10 +4147,7 @@ mod query {
 
     #[test]
     async fn filter_deadline_between() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tasks = [
@@ -4426,10 +4321,7 @@ mod query {
 
     #[test]
     async fn query_returns_tasks_with_tags() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // create test data
         let _test_tags = [
@@ -4539,8 +4431,7 @@ mod query {
 
     #[test]
     async fn as_nonexistent_user() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let opts = TaskQueryOptions::default();
 
@@ -4555,15 +4446,12 @@ mod query {
     async fn full_combination() {
         // Use all filters
 
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let opts = TaskQueryOptions {
+            sort_order: TaskSort::Created(SortOrder::Ascending),
             limit: 5,
             offset: 10,
-            sort_order: TaskSort::Created(SortOrder::Ascending),
             completed: true,
             deleted: true,
             start_filter: Some(DateFilter::Range(
@@ -4589,16 +4477,13 @@ mod select {
 
     use super::select_task_inner;
     use crate::{
-        db::test_utils::{create_test_tag, create_test_task, get_pool, get_time},
+        db::test_utils::{create_test_tag, create_test_task, db_init},
         routes::models::{tag::Model as TagCreate, task::Model as TaskCreate},
     };
 
     #[test]
     async fn base_select() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -4616,23 +4501,20 @@ mod select {
         let task_opt = res.unwrap();
         assert!(task_opt.is_some());
 
-        let task = task_opt.unwrap();
-        assert_eq!(task.id, task.id);
-        assert_eq!(task.title, "");
-        assert!(task.notes.is_none());
-        assert!(task.start_dt.is_none());
-        assert!(task.deadline.is_none());
-        assert!(task.tags.is_empty());
-        assert!(task.completed_at.is_none());
-        assert!(task.deleted_at.is_none());
+        let ret_task = task_opt.unwrap();
+        assert_eq!(ret_task.id, task.id);
+        assert_eq!(ret_task.title, "");
+        assert!(ret_task.notes.is_none());
+        assert!(ret_task.start_dt.is_none());
+        assert!(ret_task.deadline.is_none());
+        assert!(ret_task.tags.is_empty());
+        assert!(ret_task.completed_at.is_none());
+        assert!(ret_task.deleted_at.is_none());
     }
 
     #[test]
     async fn many_various_tasks() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let mut seen_ids = HashSet::new();
         for _ in 0..10 {
@@ -4671,10 +4553,7 @@ mod select {
 
     #[test]
     async fn task_with_tag() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag = create_test_tag(
             &mut tx,
@@ -4720,10 +4599,7 @@ mod select {
 
     #[test]
     async fn task_with_multiple_tags() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag_1 = create_test_tag(
             &mut tx,
@@ -4790,10 +4666,7 @@ mod select {
 
     #[test]
     async fn deleted_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let mut seen_ids = HashSet::new();
         for _ in 0..10 {
@@ -4822,8 +4695,7 @@ mod select {
 
     #[test]
     async fn nonexistent_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res = select_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil()).await;
         assert!(res.is_ok());
@@ -4834,10 +4706,7 @@ mod select {
 
     #[test]
     async fn as_nonexistent_user() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -4867,15 +4736,14 @@ mod insert {
     use crate::{
         db::{
             ApplicationError, Error,
-            test_utils::{create_test_tag, get_pool, get_time},
+            test_utils::{create_test_tag, db_init},
         },
         routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate},
     };
 
     #[test]
     async fn base_insert() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res = insert_task_inner(&mut tx, Uuid::nil(), TaskCreate::default()).await;
         assert!(res.is_ok());
@@ -4898,16 +4766,13 @@ mod insert {
 
     #[test]
     async fn with_title() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let title = "This is a test title for with_title() test".to_string();
+        let (_, mut tx, _) = db_init().await;
 
         let res = insert_task_inner(
             &mut tx,
             Uuid::nil(),
             TaskCreate {
-                title: title.clone(),
+                title: "This is a test title for with_title test".to_string(),
                 ..Default::default()
             },
         )
@@ -4915,7 +4780,7 @@ mod insert {
         assert!(res.is_ok());
 
         let task = res.unwrap();
-        assert_eq!(task.title, "This is a test title for with_title() test");
+        assert_eq!(task.title, "This is a test title for with_title test");
         assert!(task.notes.is_none());
         assert!(task.start_dt.is_none());
         assert!(task.deadline.is_none());
@@ -4932,16 +4797,13 @@ mod insert {
 
     #[test]
     async fn with_notes() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let notes = "This is the notes section in the with_notes() test".to_string();
+        let (_, mut tx, _) = db_init().await;
 
         let res = insert_task_inner(
             &mut tx,
             Uuid::nil(),
             TaskCreate {
-                notes: Some(notes),
+                notes: Some("This is the notes section in the with_notes test".to_string()),
                 ..Default::default()
             },
         )
@@ -4953,7 +4815,7 @@ mod insert {
         assert!(task.notes.is_some());
         assert_eq!(
             task.notes.unwrap(),
-            "This is the notes section in the with_notes() test"
+            "This is the notes section in the with_notes test"
         );
         assert!(task.start_dt.is_none());
         assert!(task.deadline.is_none());
@@ -4970,10 +4832,9 @@ mod insert {
 
     #[test]
     async fn with_start_date() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, base_time) = db_init().await;
 
-        let date = get_time().date_naive();
+        let date = base_time.date_naive();
 
         let res = insert_task_inner(
             &mut tx,
@@ -4990,6 +4851,7 @@ mod insert {
         assert_eq!(task.title, "");
         assert!(task.notes.is_none());
         assert!(task.start_dt.is_some());
+        assert_eq!(task.start_dt.unwrap().date_naive(), date);
         assert!(!task.has_time);
         assert!(task.deadline.is_none());
         assert!(task.tags.is_empty());
@@ -5005,10 +4867,9 @@ mod insert {
 
     #[test]
     async fn with_start_datetime() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, base_time) = db_init().await;
 
-        let datetime = get_time();
+        let datetime = base_time;
 
         let res = insert_task_inner(
             &mut tx,
@@ -5040,10 +4901,9 @@ mod insert {
 
     #[test]
     async fn with_deadline() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, base_time) = db_init().await;
 
-        let date = get_time().date_naive();
+        let date = base_time.date_naive();
 
         let res = insert_task_inner(
             &mut tx,
@@ -5075,10 +4935,7 @@ mod insert {
 
     #[test]
     async fn with_tag() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag = create_test_tag(
             &mut tx,
@@ -5127,10 +4984,7 @@ mod insert {
 
     #[test]
     async fn with_tags() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag_1 = create_test_tag(
             &mut tx,
@@ -5200,8 +5054,7 @@ mod insert {
 
     #[test]
     async fn with_nonexistent_tag() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res = insert_task_inner(
             &mut tx,
@@ -5218,8 +5071,7 @@ mod insert {
 
     #[test]
     async fn as_nonexistent_user() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res = insert_task_inner(&mut tx, Uuid::new_v4(), TaskCreate::default()).await;
         assert!(res.is_err());
@@ -5233,8 +5085,7 @@ mod insert {
 
     #[test]
     async fn combination_1() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let title = "Homework 1".to_string();
         let notes =
@@ -5278,8 +5129,7 @@ mod insert {
 
     #[test]
     async fn combination_2() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let title = "Study for Exam 1".to_string();
         let notes =
@@ -5337,34 +5187,24 @@ mod update {
     use crate::{
         db::{
             ApplicationError, Error,
-            test_utils::{create_test_tag, create_test_task, get_pool, get_task, get_time},
+            test_utils::{create_test_tag, create_test_task, db_init, get_task},
         },
+        models::Task,
         routes::models::{Start, tag::Model as TagCreate, task::Model as TaskCreate},
     };
 
-    #[test]
-    async fn only_changes_correct_fields() {
-        // TODO: check no changes to
-        // - id
-        // - completed_at
-        // - deleted_at
-        // - created_at
-        // - created_by
-
-        // Test with changes to:
-        // - title only
-        // - notes only
-        // - start (none to on, none to at, from on to at, from at to on, on to none, at to none)
-        // - deadline only
-        // - tag only
+    /// This ensures that update_task_inner will only modify user-specifiable fields
+    fn verify_scope(after_task: Task, before_task: Task) {
+        assert_eq!(after_task.id, before_task.id);
+        assert_eq!(after_task.completed_at, before_task.completed_at);
+        assert_eq!(after_task.deleted_at, before_task.deleted_at);
+        assert_eq!(after_task.created_at, before_task.created_at);
+        assert_eq!(after_task.created_by, before_task.created_by);
     }
 
     #[test]
     async fn is_idempotent() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -5376,9 +5216,9 @@ mod update {
         )
         .await;
 
-        let task_update: TaskCreate = before_task.clone().into();
+        let updated_task: TaskCreate = before_task.clone().into();
 
-        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), task_update).await;
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
@@ -5387,10 +5227,7 @@ mod update {
 
     #[test]
     async fn title_only() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -5402,30 +5239,29 @@ mod update {
         )
         .await;
 
-        let mut task_update: TaskCreate = before_task.clone().into();
-        task_update.title = "New title".to_string();
+        let mut updated_task: TaskCreate = before_task.clone().into();
+        updated_task.title = "New title".to_string();
 
-        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), task_update).await;
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.title, after_task.title);
+        assert_ne!(after_task.updated_at, before_task.updated_at);
+        assert_ne!(after_task.title, before_task.title);
         assert_eq!(after_task.title, "New title");
 
-        assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_dt, after_task.start_dt);
-        assert_eq!(before_task.has_time, after_task.has_time);
-        assert_eq!(before_task.deadline, after_task.deadline);
-        assert_eq!(before_task.tags, after_task.tags);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.start_dt, before_task.start_dt);
+        assert_eq!(after_task.has_time, before_task.has_time);
+        assert_eq!(after_task.deadline, before_task.deadline);
+        assert_eq!(after_task.tags, before_task.tags);
+
+        verify_scope(after_task, before_task);
     }
 
     #[test]
     async fn notes_only() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -5444,27 +5280,27 @@ mod update {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.notes, after_task.notes);
+        assert_ne!(after_task.updated_at, before_task.updated_at);
+        assert_ne!(after_task.notes, before_task.notes);
         assert!(after_task.notes.is_some());
-        if let Some(notes) = after_task.notes {
+        if let Some(ref notes) = after_task.notes {
             assert_eq!(notes, "Updated notes");
         }
 
-        assert_eq!(before_task.title, after_task.title);
-        assert_eq!(before_task.start_dt, after_task.start_dt);
-        assert_eq!(before_task.has_time, after_task.has_time);
-        assert_eq!(before_task.deadline, after_task.deadline);
-        assert_eq!(before_task.tags, after_task.tags);
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.start_dt, before_task.start_dt);
+        assert_eq!(after_task.has_time, before_task.has_time);
+        assert_eq!(after_task.deadline, before_task.deadline);
+        assert_eq!(after_task.tags, before_task.tags);
+
+        verify_scope(after_task, before_task);
     }
 
     #[test]
     async fn start_on_only() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, base_time) = db_init().await;
 
-        let base_time = get_time();
-
+        // None to On
         let before_task = create_test_task(
             &mut tx,
             TaskCreate::default(),
@@ -5475,7 +5311,7 @@ mod update {
         )
         .await;
 
-        let updated_start = get_time().date_naive();
+        let updated_start = base_time.date_naive();
         let mut updated_task: TaskCreate = before_task.clone().into();
         updated_task.start = Some(Start::On(updated_start));
 
@@ -5483,25 +5319,59 @@ mod update {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.start_dt, after_task.start_dt);
+        assert_ne!(after_task.updated_at, before_task.updated_at);
+        assert_ne!(after_task.start_dt, before_task.start_dt);
         assert_eq!(after_task.start_dt.unwrap().date_naive(), updated_start);
-        assert_eq!(before_task.title, after_task.title);
-        assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.has_time, after_task.has_time);
-        assert_eq!(before_task.deadline, after_task.deadline);
-        assert_eq!(before_task.tags, after_task.tags);
 
-        // TODO: test at to on
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.has_time, before_task.has_time);
+        assert_eq!(after_task.deadline, before_task.deadline);
+        assert_eq!(after_task.tags, before_task.tags);
+
+        verify_scope(after_task, before_task);
+
+        // At to On
+        let before_task = create_test_task(
+            &mut tx,
+            TaskCreate {
+                start: Some(Start::At(base_time)),
+                ..Default::default()
+            },
+            None,
+            None,
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let updated_start = base_time.date_naive();
+        let mut updated_task: TaskCreate = before_task.clone().into();
+        updated_task.start = Some(Start::On(updated_start));
+
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
+        assert!(res.is_ok());
+
+        let after_task = res.unwrap();
+        assert_ne!(after_task.updated_at, before_task.updated_at);
+        assert_ne!(after_task.start_dt, before_task.start_dt);
+        assert_eq!(after_task.start_dt.unwrap().date_naive(), updated_start);
+        assert_ne!(after_task.has_time, before_task.has_time);
+        assert!(!after_task.has_time);
+
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.deadline, before_task.deadline);
+        assert_eq!(after_task.tags, before_task.tags);
+
+        verify_scope(after_task, before_task);
     }
 
     #[test]
     async fn start_at_only() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, base_time) = db_init().await;
 
-        let base_time = get_time();
-
+        // None to At
         let before_task = create_test_task(
             &mut tx,
             TaskCreate::default(),
@@ -5512,7 +5382,7 @@ mod update {
         )
         .await;
 
-        let updated_start = get_time();
+        let updated_start = base_time;
         let mut updated_task: TaskCreate = before_task.clone().into();
         updated_task.start = Some(Start::At(updated_start));
 
@@ -5520,76 +5390,129 @@ mod update {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.start_dt, after_task.start_dt);
-        assert_ne!(before_task.has_time, after_task.has_time);
+        assert_ne!(after_task.updated_at, before_task.updated_at);
+        assert_ne!(after_task.start_dt, before_task.start_dt);
+        assert_ne!(after_task.has_time, before_task.has_time);
         assert_eq!(after_task.start_dt.unwrap(), updated_start);
 
-        assert_eq!(before_task.title, after_task.title);
-        assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.deadline, after_task.deadline);
-        assert_eq!(before_task.tags, after_task.tags);
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.deadline, before_task.deadline);
+        assert_eq!(after_task.tags, before_task.tags);
 
-        // TODO: test on to at
+        verify_scope(after_task, before_task);
+
+        // On to At
+        let before_task = create_test_task(
+            &mut tx,
+            TaskCreate {
+                start: Some(Start::On(base_time.date_naive())),
+                ..Default::default()
+            },
+            None,
+            None,
+            base_time,
+            base_time,
+        )
+        .await;
+
+        let updated_start = base_time;
+        let mut updated_task: TaskCreate = before_task.clone().into();
+        updated_task.start = Some(Start::At(updated_start));
+
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
+        assert!(res.is_ok());
+
+        let after_task = res.unwrap();
+        assert_ne!(after_task.updated_at, before_task.updated_at);
+        assert_ne!(after_task.start_dt, before_task.start_dt);
+        assert_eq!(after_task.start_dt.unwrap(), updated_start);
+        assert_ne!(after_task.has_time, before_task.has_time);
+        assert!(after_task.has_time);
+
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.deadline, before_task.deadline);
+        assert_eq!(after_task.tags, before_task.tags);
+
+        verify_scope(after_task, before_task);
     }
 
     #[test]
     async fn start_to_none() {
-        // TODO: update this function
-        // test conversions:
-        // * on to none
-        // * at to none
+        let (_, mut tx, base_time) = db_init().await;
 
-        // let pool = get_pool().await;
-        // let mut tx = pool.begin().await.unwrap();
+        // On to None
+        let before_task = create_test_task(
+            &mut tx,
+            TaskCreate {
+                start: Some(Start::On(base_time.date_naive())),
+                ..Default::default()
+            },
+            None,
+            None,
+            base_time,
+            base_time,
+        )
+        .await;
 
-        // let base_time = get_time();
+        let mut updated_task: TaskCreate = before_task.clone().into();
+        updated_task.start = None;
 
-        // let datetime = get_time();
-        // let date = datetime.date_naive();
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
+        assert!(res.is_ok());
 
-        // let before_task = create_test_task(
-        //     &mut tx,
-        //     TaskCreate {
-        //         start: Some(Start::On(date)),
-        //         ..Default::default()
-        //     },
-        //     None,
-        //     None,
-        //     base_time,
-        //     base_time,
-        // )
-        // .await;
+        let after_task = res.unwrap();
+        assert_ne!(after_task.updated_at, before_task.updated_at);
+        assert_ne!(after_task.start_dt, before_task.start_dt);
+        assert!(after_task.start_dt.is_none());
 
-        // let mut updated_task: TaskCreate = before_task.clone().into();
-        // updated_task.start = Some(Start::At(datetime));
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.has_time, before_task.has_time);
+        assert_eq!(after_task.deadline, before_task.deadline);
+        assert_eq!(after_task.tags, before_task.tags);
 
-        // let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
-        // assert!(res.is_ok());
+        verify_scope(after_task, before_task);
 
-        // let after_task = res.unwrap();
-        // assert_ne!(before_task.updated_at, after_task.updated_at);
-        // assert_ne!(before_task.start_on, after_task.start_on);
-        // assert!(after_task.start_on.is_none());
-        // assert_ne!(before_task.start_at, after_task.start_at);
-        // assert!(after_task.start_at.is_some());
-        // assert_eq!(
-        //     after_task.start_at.unwrap(),
-        //     datetime.trunc_subsecs(PG_SUBSEC_PREC)
-        // );
+        // At to None
+        let before_task = create_test_task(
+            &mut tx,
+            TaskCreate {
+                start: Some(Start::At(base_time)),
+                ..Default::default()
+            },
+            None,
+            None,
+            base_time,
+            base_time,
+        )
+        .await;
 
-        // assert_eq!(before_task.title, after_task.title);
-        // assert_eq!(before_task.notes, after_task.notes);
-        // assert_eq!(before_task.deadline, after_task.deadline);
-        // assert_eq!(before_task.tags, after_task.tags);
+        let mut updated_task: TaskCreate = before_task.clone().into();
+        updated_task.start = None;
+
+        let res = update_task_inner(&mut tx, before_task.id, Uuid::nil(), updated_task).await;
+        assert!(res.is_ok());
+
+        let after_task = res.unwrap();
+        assert_ne!(after_task.updated_at, before_task.updated_at);
+        assert_ne!(after_task.start_dt, before_task.start_dt);
+        assert!(after_task.start_dt.is_none());
+        assert_ne!(after_task.has_time, before_task.has_time);
+        assert!(!after_task.has_time);
+
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.deadline, before_task.deadline);
+        assert_eq!(after_task.tags, before_task.tags);
+
+        verify_scope(after_task, before_task);
     }
 
     #[test]
     async fn deadline_only() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -5601,7 +5524,7 @@ mod update {
         )
         .await;
 
-        let updated_deadline = get_time().date_naive();
+        let updated_deadline = base_time.date_naive();
         let mut updated_task: TaskCreate = before_task.clone().into();
         updated_task.deadline = Some(updated_deadline);
 
@@ -5609,25 +5532,24 @@ mod update {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.deadline, after_task.deadline);
+        assert_ne!(after_task.updated_at, before_task.updated_at);
+        assert_ne!(after_task.deadline, before_task.deadline);
         assert!(after_task.deadline.is_some());
         if let Some(date) = after_task.deadline {
             assert_eq!(date, updated_deadline);
         }
 
-        assert_eq!(before_task.title, after_task.title);
-        assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_dt, after_task.start_dt);
-        assert_eq!(before_task.tags, after_task.tags);
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.start_dt, before_task.start_dt);
+        assert_eq!(after_task.tags, before_task.tags);
+
+        verify_scope(after_task, before_task);
     }
 
     #[test]
     async fn update_tag() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag = create_test_tag(
             &mut tx,
@@ -5657,8 +5579,8 @@ mod update {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.tags, after_task.tags);
+        assert_ne!(after_task.updated_at, before_task.updated_at);
+        assert_ne!(after_task.tags, before_task.tags);
 
         assert_eq!(after_task.tags.len(), 1);
         let tag = after_task.tags.first().unwrap();
@@ -5668,18 +5590,17 @@ mod update {
             assert_eq!(category, "Testing");
         }
 
-        assert_eq!(before_task.title, after_task.title);
-        assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_dt, after_task.start_dt);
-        assert_eq!(before_task.deadline, after_task.deadline);
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.start_dt, before_task.start_dt);
+        assert_eq!(after_task.deadline, before_task.deadline);
+
+        verify_scope(after_task, before_task);
     }
 
     #[test]
     async fn update_tags() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag_1 = create_test_tag(
             &mut tx,
@@ -5729,8 +5650,9 @@ mod update {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.tags, after_task.tags);
+        assert_ne!(after_task.updated_at, before_task.updated_at);
+        assert_ne!(after_task.tags, before_task.tags);
+
         assert_eq!(after_task.tags.len(), 3);
         for (i, tag) in after_task.tags.iter().enumerate() {
             assert_eq!(tag.label, format!("Test Tag {}", i + 1));
@@ -5740,18 +5662,17 @@ mod update {
             }
         }
 
-        assert_eq!(before_task.title, after_task.title);
-        assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_dt, after_task.start_dt);
-        assert_eq!(before_task.deadline, after_task.deadline);
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.start_dt, before_task.start_dt);
+        assert_eq!(after_task.deadline, before_task.deadline);
+
+        verify_scope(after_task, before_task);
     }
 
     #[test]
     async fn update_empty_tag() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let tag_1 = create_test_tag(
             &mut tx,
@@ -5804,22 +5725,21 @@ mod update {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.tags, after_task.tags);
+        assert_ne!(after_task.updated_at, before_task.updated_at);
+        assert_ne!(after_task.tags, before_task.tags);
         assert!(after_task.tags.is_empty());
 
-        assert_eq!(before_task.title, after_task.title);
-        assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.start_dt, after_task.start_dt);
-        assert_eq!(before_task.deadline, after_task.deadline);
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.start_dt, before_task.start_dt);
+        assert_eq!(after_task.deadline, before_task.deadline);
+
+        verify_scope(after_task, before_task);
     }
 
     #[test]
     async fn update_nonexistent_tag() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -5843,10 +5763,7 @@ mod update {
 
     #[test]
     async fn deleted_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -5867,8 +5784,7 @@ mod update {
 
     #[test]
     async fn nonexistent_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res =
             update_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), TaskCreate::default()).await;
@@ -5880,10 +5796,7 @@ mod update {
 
     #[test]
     async fn as_nonexistent_user() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -5907,10 +5820,7 @@ mod update {
 
     #[test]
     async fn combination_1() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -5940,27 +5850,24 @@ mod update {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.start_dt, after_task.start_dt);
-        if let (Some(before_date), Some(after_date)) = (before_task.start_dt, after_task.start_dt) {
-            assert_eq!(before_date + Duration::weeks(1), after_date);
+        assert_ne!(after_task.updated_at, before_task.updated_at);
+        assert_ne!(after_task.start_dt, before_task.start_dt);
+        if let (Some(after_date), Some(before_date)) = (after_task.start_dt, before_task.start_dt) {
+            assert_eq!(after_date, before_date + Duration::weeks(1));
         }
-        assert_ne!(before_task.deadline, after_task.deadline);
-        if let (Some(before_date), Some(after_date)) = (before_task.deadline, after_task.deadline) {
-            assert_eq!(before_date + Duration::weeks(1), after_date);
+        assert_ne!(after_task.deadline, before_task.deadline);
+        if let (Some(after_date), Some(before_date)) = (after_task.deadline, before_task.deadline) {
+            assert_eq!(after_date, before_date + Duration::weeks(1));
         }
 
-        assert_eq!(before_task.title, after_task.title);
-        assert_eq!(before_task.notes, after_task.notes);
-        assert_eq!(before_task.tags, after_task.tags);
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.tags, before_task.tags);
     }
 
     #[test]
     async fn combination_2() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let backlog_tag = create_test_tag(
             &mut tx,
@@ -6078,10 +5985,7 @@ mod update {
 
     #[test]
     async fn combination_3() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let before_task = create_test_task(
             &mut tx,
@@ -6106,10 +6010,10 @@ mod update {
         assert!(res.is_ok());
 
         let after_task = res.unwrap();
-        assert_ne!(before_task.updated_at, after_task.updated_at);
-        assert_ne!(before_task.title, after_task.title);
+        assert_ne!(after_task.updated_at, before_task.updated_at);
+        assert_ne!(after_task.title, before_task.title);
         assert_eq!(after_task.title, "Create task database schema");
-        assert_ne!(before_task.notes, after_task.notes);
+        assert_ne!(after_task.notes, before_task.notes);
         assert!(after_task.notes.is_some());
         if let Some(notes) = after_task.notes {
             assert_eq!(
@@ -6127,16 +6031,28 @@ mod delete {
 
     use super::delete_task_inner;
     use crate::{
-        db::test_utils::{create_test_task, get_pool, get_task, get_time},
+        db::test_utils::{create_test_task, db_init, get_task},
+        models::Task,
         routes::models::task::Model as TaskCreate,
     };
 
+    /// This ensures that delete_task_inner will only modify updated_at and deleted_at
+    fn verify_scope(after_task: Task, before_task: Task) {
+        assert_eq!(after_task.id, before_task.id);
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.start_dt, before_task.start_dt);
+        assert_eq!(after_task.has_time, before_task.has_time);
+        assert_eq!(after_task.deadline, before_task.deadline);
+        assert_eq!(after_task.tags, before_task.tags);
+        assert_eq!(after_task.completed_at, before_task.completed_at);
+        assert_eq!(after_task.created_at, before_task.created_at);
+        assert_eq!(after_task.created_by, before_task.created_by);
+    }
+
     #[test]
     async fn base_delete() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -6151,7 +6067,7 @@ mod delete {
         let res = delete_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "delete should return unit '()'");
+        assert_eq!(res.unwrap(), (), "delete should return unit");
 
         let after_task = get_task(&mut tx, task.id).await;
         assert_ne!(after_task.updated_at, task.updated_at);
@@ -6159,19 +6075,13 @@ mod delete {
         if let Some(date) = after_task.deleted_at {
             assert_eq!(date, after_task.updated_at);
         }
-    }
 
-    #[test]
-    async fn only_changes_correct_fields() {
-        // TODO: make sure that delete only updates deleted_at and updated_at
+        verify_scope(after_task, task);
     }
 
     #[test]
     async fn is_idempotent() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -6186,7 +6096,7 @@ mod delete {
         let res = delete_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "delete should return unit '()'");
+        assert_eq!(res.unwrap(), (), "delete should return unit");
 
         let first_delete_task = get_task(&mut tx, task.id).await;
         assert_ne!(first_delete_task.updated_at, task.updated_at);
@@ -6198,7 +6108,7 @@ mod delete {
         let res = delete_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "deleted should return unit '()'");
+        assert_eq!(res.unwrap(), (), "deleted should return unit");
 
         let second_delete_task = get_task(&mut tx, task.id).await;
         assert_eq!(
@@ -6213,10 +6123,7 @@ mod delete {
 
     #[test]
     async fn deleted_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -6231,7 +6138,7 @@ mod delete {
         let res = delete_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "deleted should return unit '()'");
+        assert_eq!(res.unwrap(), (), "deleted should return unit");
 
         let after_task = get_task(&mut tx, task.id).await;
         assert_eq!(
@@ -6246,21 +6153,17 @@ mod delete {
 
     #[test]
     async fn nonexistent_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res = delete_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil()).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "delete should return unit '()'");
+        assert_eq!(res.unwrap(), (), "delete should return unit");
     }
 
     #[test]
     async fn as_nonexistent_user() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -6286,17 +6189,29 @@ mod restore {
     use crate::{
         db::{
             ApplicationError, Error,
-            test_utils::{create_test_task, get_pool, get_task, get_time},
+            test_utils::{create_test_task, db_init, get_task},
         },
+        models::Task,
         routes::models::task::Model as TaskCreate,
     };
 
+    /// This ensures that restore_task_inner will only modify updated_at and deleted_at
+    fn verify_scope(after_task: Task, before_task: Task) {
+        assert_eq!(after_task.id, before_task.id);
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.start_dt, before_task.start_dt);
+        assert_eq!(after_task.has_time, before_task.has_time);
+        assert_eq!(after_task.deadline, before_task.deadline);
+        assert_eq!(after_task.tags, before_task.tags);
+        assert_eq!(after_task.completed_at, before_task.completed_at);
+        assert_eq!(after_task.created_at, before_task.created_at);
+        assert_eq!(after_task.created_by, before_task.created_by);
+    }
+
     #[test]
     async fn base_restore() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -6311,24 +6226,18 @@ mod restore {
         let res = restore_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "restore should return unit '()'");
+        assert_eq!(res.unwrap(), (), "restore should return unit");
 
         let after_task = get_task(&mut tx, task.id).await;
         assert_ne!(after_task.updated_at, task.updated_at);
         assert!(after_task.deleted_at.is_none());
-    }
 
-    #[test]
-    async fn only_changes_correct_fields() {
-        // TODO: make sure that delete only updates deleted_at and updated_at
+        verify_scope(after_task, task);
     }
 
     #[test]
     async fn is_idempotent() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -6343,7 +6252,7 @@ mod restore {
         let res = restore_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "restore should return unit '()'");
+        assert_eq!(res.unwrap(), (), "restore should return unit");
 
         let first_restore_task = get_task(&mut tx, task.id).await;
         assert_ne!(first_restore_task.updated_at, task.updated_at);
@@ -6352,7 +6261,7 @@ mod restore {
         let res = restore_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "restore should return unit '()'");
+        assert_eq!(res.unwrap(), (), "restore should return unit");
 
         let second_restore_task = get_task(&mut tx, task.id).await;
         assert_eq!(
@@ -6367,10 +6276,7 @@ mod restore {
 
     #[test]
     async fn restored_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -6385,7 +6291,7 @@ mod restore {
         let res = restore_task_inner(&mut tx, task.id, Uuid::nil()).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "restore should return unit '()'");
+        assert_eq!(res.unwrap(), (), "restore should return unit");
 
         let after_task = get_task(&mut tx, task.id).await;
         assert_eq!(
@@ -6400,8 +6306,7 @@ mod restore {
 
     #[test]
     async fn nonexistent_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res = restore_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil()).await;
         assert!(matches!(
@@ -6412,10 +6317,7 @@ mod restore {
 
     #[test]
     async fn as_nonexistent_user() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -6447,17 +6349,29 @@ mod complete {
     use crate::{
         db::{
             ApplicationError, Error,
-            test_utils::{create_test_task, get_pool, get_task, get_time},
+            test_utils::{create_test_task, db_init, get_task},
         },
+        models::Task,
         routes::models::task::Model as TaskCreate,
     };
 
+    /// This ensures that [un]complete_task_inner will only modify updated_at and completed_at
+    fn verify_scope(after_task: Task, before_task: Task) {
+        assert_eq!(after_task.id, before_task.id);
+        assert_eq!(after_task.title, before_task.title);
+        assert_eq!(after_task.notes, before_task.notes);
+        assert_eq!(after_task.start_dt, before_task.start_dt);
+        assert_eq!(after_task.has_time, before_task.has_time);
+        assert_eq!(after_task.deadline, before_task.deadline);
+        assert_eq!(after_task.tags, before_task.tags);
+        assert_eq!(after_task.deleted_at, before_task.deleted_at);
+        assert_eq!(after_task.created_at, before_task.created_at);
+        assert_eq!(after_task.created_by, before_task.created_by);
+    }
+
     #[test]
     async fn complete_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -6472,7 +6386,7 @@ mod complete {
         let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), true).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+        assert_eq!(res.unwrap(), (), "complete should return unit");
 
         let after_task = get_task(&mut tx, task.id).await;
         assert_ne!(after_task.updated_at, task.updated_at);
@@ -6480,19 +6394,13 @@ mod complete {
         if let Some(date) = after_task.completed_at {
             assert_eq!(date, after_task.updated_at);
         }
-    }
 
-    #[test]
-    async fn complete_only_changes_correct_fields() {
-        // TODO: make sure that delete only updates completed_at and updated_at
+        verify_scope(after_task, task);
     }
 
     #[test]
     async fn complete_is_idempotent() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -6507,7 +6415,7 @@ mod complete {
         let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), true).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+        assert_eq!(res.unwrap(), (), "complete should return unit");
 
         let first_complete_task = get_task(&mut tx, task.id).await;
         assert_ne!(first_complete_task.updated_at, task.updated_at);
@@ -6519,7 +6427,7 @@ mod complete {
         let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), true).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+        assert_eq!(res.unwrap(), (), "complete should return unit");
 
         let second_complete_task = get_task(&mut tx, task.id).await;
         assert_eq!(
@@ -6534,10 +6442,7 @@ mod complete {
 
     #[test]
     async fn complete_completed() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -6552,7 +6457,7 @@ mod complete {
         let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), true).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+        assert_eq!(res.unwrap(), (), "complete should return unit");
 
         let after_task = get_task(&mut tx, task.id).await;
         assert_eq!(
@@ -6567,10 +6472,7 @@ mod complete {
 
     #[test]
     async fn complete_deleted() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // uncomplete task
         let task = create_test_task(
@@ -6609,8 +6511,7 @@ mod complete {
 
     #[test]
     async fn complete_nonexistent() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res = complete_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), true).await;
         assert!(matches!(
@@ -6621,8 +6522,7 @@ mod complete {
 
     #[test]
     async fn complete_as_nonexistent_user() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res = complete_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), true).await;
         assert!(matches!(
@@ -6633,10 +6533,7 @@ mod complete {
 
     #[test]
     async fn uncomplete_task() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -6651,24 +6548,18 @@ mod complete {
         let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), false).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+        assert_eq!(res.unwrap(), (), "complete should return unit");
 
         let after_task = get_task(&mut tx, task.id).await;
         assert_ne!(after_task.updated_at, task.updated_at);
         assert!(after_task.completed_at.is_none());
-    }
 
-    #[test]
-    async fn uncomplete_only_changes_correct_fields() {
-        // TODO: make sure that delete only updates completed_at and updated_at
+        verify_scope(after_task, task);
     }
 
     #[test]
     async fn uncomplete_is_idempotent() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -6683,7 +6574,7 @@ mod complete {
         let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), false).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+        assert_eq!(res.unwrap(), (), "complete should return unit");
 
         let first_uncomplete_task = get_task(&mut tx, task.id).await;
         assert_ne!(first_uncomplete_task.updated_at, task.updated_at);
@@ -6692,7 +6583,7 @@ mod complete {
         let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), false).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+        assert_eq!(res.unwrap(), (), "complete should return unit");
 
         let second_uncomplete_task = get_task(&mut tx, task.id).await;
         assert_eq!(
@@ -6707,10 +6598,7 @@ mod complete {
 
     #[test]
     async fn uncomplete_uncompleted() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         let task = create_test_task(
             &mut tx,
@@ -6725,7 +6613,7 @@ mod complete {
         let res = complete_task_inner(&mut tx, task.id, Uuid::nil(), false).await;
         assert!(res.is_ok());
 
-        assert_eq!(res.unwrap(), (), "complete should return unit '()'");
+        assert_eq!(res.unwrap(), (), "complete should return unit");
 
         let after_task = get_task(&mut tx, task.id).await;
         assert_eq!(
@@ -6740,10 +6628,7 @@ mod complete {
 
     #[test]
     async fn uncomplete_deleted() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
-
-        let base_time = get_time();
+        let (_, mut tx, base_time) = db_init().await;
 
         // uncomplete task
         let task = create_test_task(
@@ -6782,8 +6667,7 @@ mod complete {
 
     #[test]
     async fn uncomplete_nonexistent() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res = complete_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), false).await;
         assert!(matches!(
@@ -6794,8 +6678,7 @@ mod complete {
 
     #[test]
     async fn uncomplete_as_nonexistent_user() {
-        let pool = get_pool().await;
-        let mut tx = pool.begin().await.unwrap();
+        let (_, mut tx, _) = db_init().await;
 
         let res = complete_task_inner(&mut tx, Uuid::new_v4(), Uuid::nil(), false).await;
         assert!(matches!(

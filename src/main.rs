@@ -11,7 +11,6 @@ use tracing_subscriber::EnvFilter;
 use clearlist_api::{AppState, DatabaseConn, create_app, run_migration};
 
 // TODO: add anyhow
-// TODO: handle 404 to return JSON object
 
 #[tokio::main]
 async fn main() {

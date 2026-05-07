@@ -1,7 +1,7 @@
 use std::{cmp::Ordering, collections::HashSet, env};
 
 use chrono::{DateTime, SubsecRound, Utc};
-use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
+use sqlx::{Connection, PgConnection, PgPool, Postgres, Transaction, postgres::PgPoolOptions};
 use tokio::sync::OnceCell;
 use uuid::Uuid;
 
@@ -15,42 +15,46 @@ use crate::{
 pub const PG_SUBSEC_PREC: u16 = 6;
 
 static POOL: OnceCell<PgPool> = OnceCell::const_new();
-pub async fn get_pool() -> &'static PgPool {
-    POOL.get_or_init(|| async {
-        dotenvy::dotenv().ok();
+pub async fn db_init() -> (
+    &'static PgPool,
+    Transaction<'static, Postgres>,
+    DateTime<Utc>,
+) {
+    let pool = POOL
+        .get_or_init(|| async {
+            dotenvy::dotenv().ok();
 
-        let url = env::var("MIGRATION_URL").unwrap();
-        let mut conn = PgConnection::connect(&url).await.unwrap();
+            let url = env::var("MIGRATION_URL").unwrap();
+            let mut conn = PgConnection::connect(&url).await.unwrap();
 
-        // migration
-        run_migration(&mut conn).await.unwrap();
+            // migration
+            run_migration(&mut conn).await.unwrap();
 
-        // add dummy user
-        sqlx::query(
-            "INSERT INTO auth.user (\"id\", \"name\", \"email\", \"emailVerified\")
+            // add dummy user
+            sqlx::query(
+                "INSERT INTO auth.user (\"id\", \"name\", \"email\", \"emailVerified\")
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (\"id\") DO NOTHING;",
-        )
-        .bind(Uuid::nil())
-        .bind("testuser")
-        .bind("testuser@email.com")
-        .bind(false)
-        .execute(&mut conn)
-        .await
-        .unwrap();
+            )
+            .bind(Uuid::nil())
+            .bind("testuser")
+            .bind("testuser@email.com")
+            .bind(false)
+            .execute(&mut conn)
+            .await
+            .unwrap();
 
-        // testing user
-        let url = env::var("DATABASE_URL").unwrap();
-        let pool_opts = PgPoolOptions::new().max_connections(1);
+            // testing user
+            let url = env::var("DATABASE_URL").unwrap();
+            let pool_opts = PgPoolOptions::new().max_connections(1);
 
-        pool_opts.connect(&url).await.unwrap()
-    })
-    .await
-}
+            pool_opts.connect(&url).await.unwrap()
+        })
+        .await;
 
-/// Gets current time in Utc that matches the default PostgreSQL precision (6 decimals)
-pub fn get_time() -> DateTime<Utc> {
-    Utc::now().trunc_subsecs(PG_SUBSEC_PREC)
+    let tx = pool.begin().await.unwrap();
+
+    (pool, tx, Utc::now().trunc_subsecs(PG_SUBSEC_PREC))
 }
 
 pub async fn create_test_task(
@@ -136,11 +140,7 @@ pub async fn create_test_task(
         task.tags.iter().copied().collect::<HashSet<Uuid>>(),
         "tags don't match input"
     );
-    assert_eq!(
-        ret_task.created_by,
-        Uuid::nil(),
-        "created_by does not match input"
-    );
+
     assert_eq!(
         ret_task.completed_at,
         completed_at.map(|date| date.trunc_subsecs(PG_SUBSEC_PREC)),
@@ -151,6 +151,7 @@ pub async fn create_test_task(
         deleted_at.map(|date| date.trunc_subsecs(PG_SUBSEC_PREC)),
         "deleted_at does not match input"
     );
+
     assert_eq!(
         ret_task.created_at,
         created_at.trunc_subsecs(PG_SUBSEC_PREC),
@@ -160,6 +161,12 @@ pub async fn create_test_task(
         ret_task.updated_at,
         updated_at.trunc_subsecs(PG_SUBSEC_PREC),
         "updated_at does not match input"
+    );
+
+    assert_eq!(
+        ret_task.created_by,
+        Uuid::nil(),
+        "created_by does not match input"
     );
 
     ret_task
@@ -217,11 +224,7 @@ pub async fn create_test_tag(
         ret_tag.category, tag.category,
         "category does not match input"
     );
-    assert_eq!(
-        ret_tag.created_by,
-        Uuid::nil(),
-        "created_by does not match input"
-    );
+
     assert_eq!(
         ret_tag.created_at,
         created_at.trunc_subsecs(PG_SUBSEC_PREC),
@@ -231,6 +234,12 @@ pub async fn create_test_tag(
         ret_tag.updated_at,
         updated_at.trunc_subsecs(PG_SUBSEC_PREC),
         "updated_at does not match input"
+    );
+
+    assert_eq!(
+        ret_tag.created_by,
+        Uuid::nil(),
+        "created_by does not match input"
     );
 
     ret_tag

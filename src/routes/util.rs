@@ -80,17 +80,16 @@ impl FromRequestParts<AppState> for Session {
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
         let cookies = CookieJar::from_headers(&parts.headers);
-        if cookies.get(&COOKIE_KEY).is_none() {
-            return Err(Error::NotAuthorized);
-        }
 
         let session_id = cookies
             .get(&COOKIE_KEY)
-            .unwrap() // TODO: do not unwrap here
+            .ok_or(Error::NotAuthorized)?
             .value_trimmed()
             .split('.')
             .next()
-            .unwrap(); // TODO: or here
+            .ok_or(Error::InvalidRequest(
+                "unexpected session id found".to_string(),
+            ))?;
 
         let conn = state.db.pool();
         let session: Session = match sqlx::query_as::<Postgres, Session>(

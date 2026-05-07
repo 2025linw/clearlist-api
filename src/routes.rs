@@ -80,3 +80,10 @@ pub async fn health_check_handler() -> impl IntoResponse {
         .message(MESSAGE)
         .add_kv("version", json!(env!("CARGO_PKG_VERSION")))
 }
+
+/// Handler for invalid routes
+///
+/// Responds with Not Found (404)
+pub async fn missing_404_handler() -> impl IntoResponse {
+    Response::new(StatusCode::NOT_FOUND).message("Endpoint not found")
+}
