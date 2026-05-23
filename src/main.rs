@@ -26,7 +26,7 @@ async fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 {
         if args.len() > 2 {
-            eprintln!("{} Expected 0 or 1 arguments: <function>", args[0]);
+            eprintln!("{} expected 0 or 1 arguments: <function>", args[0]);
 
             std::process::exit(1);
         }
@@ -130,14 +130,14 @@ async fn main() {
         .await
         .unwrap();
 
-    info!("Starting server on port {}", srv_port);
+    info!("Starting server on port {srv_port}");
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await
-    .unwrap_or_else(|e| {
-        eprintln!("unable to start server: {}", e);
+    .unwrap_or_else(|err| {
+        eprintln!("unable to start server: {err}");
 
         std::process::exit(1)
     });
