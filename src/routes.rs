@@ -63,6 +63,7 @@ pub fn create_api_router() -> Router<AppState> {
         );
 
     Router::new()
+        .route("/health", get(health_check_handler))
         .nest("/tasks", task_routes)
         .nest("/tags", tag_routes)
         .layer(GovernorLayer {

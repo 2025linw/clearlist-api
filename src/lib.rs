@@ -11,7 +11,7 @@ mod routes;
 
 pub use db::{DatabaseConn, run_migration};
 
-use axum::{Router, routing::get};
+use axum::Router;
 
 use crate::routes::missing_404_handler;
 
@@ -33,7 +33,6 @@ impl AppState {
 /// Creates a new Router to be used as the app for Clear List API webserver
 pub fn create_app(app_state: AppState) -> Router {
     Router::new()
-        .route("/health", get(routes::health_check_handler))
         .nest("/api", routes::create_api_router())
         .fallback(missing_404_handler)
         .with_state(app_state)
